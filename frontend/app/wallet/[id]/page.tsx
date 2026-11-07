@@ -143,6 +143,15 @@ export default function WalletPage({ params }: { params: { id: string } }) {
         </div>
       )}
       {st.status === "error" && <div className="panel"><Say mood="mad" className="err">Scan failed: {st.error}</Say></div>}
+      {st.status === "ready" && (st.network_errors?.length ?? 0) > 0 && (
+        <div className="panel">
+          <Say mood="mad">
+            <strong>Some networks couldn&apos;t be read this time:</strong>{" "}
+            {st.network_errors!.map((n) => `${CHAIN_LABEL[n.chain as Chain] ?? n.chain} (${shorten(n.address, 4)})`).join(", ")}.
+            {" "}Everything else is shown. Tap Refresh to try those again.
+          </Say>
+        </div>
+      )}
 
       {sm && (
         <>

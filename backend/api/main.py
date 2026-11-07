@@ -167,6 +167,8 @@ async def wallet(pid: str):
         "addresses": [{"chain": c.value, "address": a, "label": p.labels.get(a),
                        "scanned": p.progress.get(progress_key(c, a), 0)} for c, a in p.addresses],
         "updated_at": p.updated_at,
+        "network_errors": [{"chain": k.split(":", 1)[0], "address": k.split(":", 1)[1], "error": v}
+                           for k, v in p.network_errors.items()],
         "summary": None if not r else {
             "portfolio_value": usd(r.portfolio_value),
             "realized_pnl": usd(r.realized_total),

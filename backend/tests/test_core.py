@@ -164,3 +164,32 @@ def test_highlights_example_wallet():
     assert bf["held_days"] == 105 and bf["buy_tx"] == "0xexample05"
     assert wf["name"] == "Glowmoth #12" and wf["realized"] == D(270) - D(760) - D("0.01")
     assert h["flip_count"] == 2
+
+
+def test_one_network_failing_does_not_sink_the_scan(monkeypatch):
+    import asyncio
+    from datetime import datetime, timezone
+    from decimal import Decimal as D
+    from core.models import Asset, Chain, Leg, NormalizedTx
+    from portfolio import service
+    from portfolio.pnl import Method
+
+    class Good:
+        async def scan(self, address, since_cursor=None):
+            yield NormalizedTx(Chain.ETHEREUM, "0xok", datetime.now(timezone.utc), address,
+                               [Leg(Asset(Chain.ETHEREUM, "ETH"), D(1))])
+
+    class Down:
+        async def scan(self, address, since_cursor=None):
+            raise RuntimeError("explorer unavailable")
+            yield  # pragma: no cover
+
+    class NoPrices:
+        async def price_transactions(self, txs): pass
+        async def current(self, assets): return {}
+
+    monkeypatch.setattr(service, "_scanner", lambda c: Down() if c == Chain.ROBINHOOD else Good())
+    p = service.Store().create(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], Method.FIFO)
+    asyncio.run(service.run_scan(p, NoPrices()))
+    assert p.status == "ready" and len(p.txs) == 1
+    assert list(p.network_errors) == ["robinhood:0xd8da6bf26964af9d7eed9e03e53415d37aa96045"]

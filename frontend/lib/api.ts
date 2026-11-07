@@ -73,6 +73,7 @@ export interface WalletStatus {
   demo: boolean;
   addresses: { chain: string; address: string; label: string | null; scanned: number }[];
   updated_at: string | null;
+  network_errors?: { chain: string; address: string; error: string }[];
   summary: Summary | null;
 }
 export interface Leg {

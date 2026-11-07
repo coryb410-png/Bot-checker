@@ -39,6 +39,7 @@ class Portfolio:
     manual_costs: dict[str, Decimal] = field(default_factory=dict)
     demo: bool = False               # example wallet with invented data
     labels: dict[str, str] = field(default_factory=dict)   # address -> name.eth / name.sol
+    network_errors: dict[str, str] = field(default_factory=dict)  # "chain:address" -> message
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime | None = None
 
@@ -101,17 +102,26 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
     try:
         p.status = "scanning"
 
+        p.network_errors = {}
+
         async def one(chain: Chain, addr: str) -> list[NormalizedTx]:
             out = []
             key = progress_key(chain, addr)
-            async for tx in _scanner(chain).scan(addr, p.cursors.get(key)):
-                out.append(tx)
-                p.progress[key] = len(out)
-                if len(out) >= MAX_TXS_PER_ADDRESS:
-                    break
+            try:
+                async for tx in _scanner(chain).scan(addr, p.cursors.get(key)):
+                    out.append(tx)
+                    p.progress[key] = len(out)
+                    if len(out) >= MAX_TXS_PER_ADDRESS:
+                        break
+            except Exception as e:
+                # One network failing (an outage, a missing key) must not sink
+                # the others. Keep what was read and report the problem.
+                p.network_errors[key] = str(e)[:300]
             return out
 
         results = await asyncio.gather(*(one(c, a) for c, a in p.addresses))
+        if len(p.network_errors) == len(p.addresses):
+            raise RuntimeError(next(iter(p.network_errors.values())))
         new = [t for batch in results for t in batch]
         for (c, a), batch in zip(p.addresses, results):
             if batch:
