@@ -196,3 +196,23 @@ def test_eth_address_is_also_scanned_on_robinhood_chain():
     p = Store().create(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"], Method.FIFO)
     chains = [c for c, _ in p.addresses]
     assert chains.count(Chain.ROBINHOOD) == 1 and Chain.ETHEREUM in chains and Chain.BITCOIN in chains
+
+
+def test_solana_nft_lookup_sends_key_as_param(monkeypatch):
+    import asyncio
+    monkeypatch.setenv("HELIUS_API_KEY", "abc123")
+    monkeypatch.delenv("HELIUS_RPC_URL", raising=False)
+    seen = {}
+
+    class FakeRpc:
+        async def post(self, url, params=None, json=None):
+            seen.update(params=params, method=json["method"])
+            return {"result": [{"id": "Mint9", "interface": "V1_NFT",
+                                "content": {"metadata": {"name": "Stray #9", "symbol": "STRAY"},
+                                            "links": {"image": "https://arweave.net/x.png"}}}]}
+
+    sc = SolanaScanner(http=object(), rpc=FakeRpc())
+    asyncio.run(sc._resolve_mints({"Mint9"}))
+    assert seen == {"params": {"api-key": "abc123"}, "method": "getAssetBatch"}
+    a = sc._asset("Mint9", "NonFungible")
+    assert a.is_nft and a.name == "Stray #9" and a.image == "https://arweave.net/x.png"

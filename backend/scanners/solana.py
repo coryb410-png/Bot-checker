@@ -7,7 +7,9 @@ Helius has moved hostnames before; both base URLs are configurable.
 """
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
+from urllib.parse import parse_qsl, urlsplit
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import AsyncIterator
@@ -25,6 +27,7 @@ KNOWN_MINTS = {
     "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN": ("JUP", 6, "jupiter-exchange-solana"),
     "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": ("BONK", 5, "bonk"),
 }
+log = logging.getLogger("chainscope.solana")
 NFT_STANDARDS = {"NonFungible", "ProgrammableNonFungible", "NonFungibleEdition", "Compressed"}
 
 
@@ -32,7 +35,13 @@ class SolanaScanner:
     def __init__(self, http: Http | None = None, rpc: Http | None = None):
         self.key = env("HELIUS_API_KEY")
         self.http = http or Http(env("HELIUS_API_BASE", "https://api.helius.xyz/v0"), rate_per_sec=8)
-        self.rpc = rpc or Http(env("HELIUS_RPC_URL", f"https://mainnet.helius-rpc.com/?api-key={self.key}"), rate_per_sec=8)
+        # The key goes in the query string of every call, NOT in the base URL:
+        # the HTTP client appends "/" to a base URL, which corrupted the key
+        # ("...?api-key=KEY/") and made every name/image lookup fail.
+        rpc_url = env("HELIUS_RPC_URL", "https://mainnet.helius-rpc.com")
+        parts = urlsplit(rpc_url)
+        self.rpc_params = dict(parse_qsl(parts.query)) or {"api-key": self.key}
+        self.rpc = rpc or Http(f"{parts.scheme}://{parts.netloc}{parts.path}", rate_per_sec=8)
         self._meta: dict[str, dict] = {}
 
     async def scan(self, address: str, since_cursor: str | None = None) -> AsyncIterator[NormalizedTx]:
@@ -55,10 +64,13 @@ class SolanaScanner:
         todo = [m for m in mints if m not in self._meta and m not in KNOWN_MINTS and m != WSOL]
         for i in range(0, len(todo), 1000):
             try:
-                res = await self.rpc.post("", json={"jsonrpc": "2.0", "id": 1, "method": "getAssetBatch",
-                                                   "params": {"ids": todo[i:i + 1000]}})
-            except Exception:
+                res = await self.rpc.post("", params=self.rpc_params, json={
+                    "jsonrpc": "2.0", "id": 1, "method": "getAssetBatch", "params": {"ids": todo[i:i + 1000]}})
+            except Exception as e:
+                log.warning("Helius getAssetBatch failed: %s", str(e)[:200])
                 continue   # names/images are optional; the scan carries on
+            if res.get("error"):
+                log.warning("Helius getAssetBatch error: %s", str(res["error"])[:200])
             for a in res.get("result") or []:
                 if a:
                     self._meta[a["id"]] = parse_das_asset(a)
@@ -127,8 +139,10 @@ def parse_das_asset(a: dict) -> dict:
     links = content.get("links") or {}
     files = content.get("files") or []
     is_nft = a.get("interface") in ("V1_NFT", "ProgrammableNFT", "MplCoreAsset", "LEGACY_NFT", "V2_NFT")
-    img = links.get("image") or next((f.get("cdn_uri") or f.get("uri") for f in files
-                                      if (f.get("mime") or "").startswith("image")), None)
+    # Prefer Helius's image CDN (fast, phone-friendly), then the original link
+    image_files = [f for f in files if (f.get("mime") or "").startswith("image") or f.get("cdn_uri")]
+    img = next((f["cdn_uri"] for f in image_files if f.get("cdn_uri")), None) \
+        or links.get("image") or next((f.get("uri") for f in image_files if f.get("uri")), None)
     return {
         "symbol": ti.get("symbol") or md.get("symbol") or md.get("name") or a["id"][:4] + "…",
         "decimals": ti.get("decimals") or 0,
