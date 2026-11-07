@@ -216,3 +216,17 @@ def test_solana_nft_lookup_sends_key_as_param(monkeypatch):
     assert seen == {"params": {"api-key": "abc123"}, "method": "getAssetBatch"}
     a = sc._asset("Mint9", "NonFungible")
     assert a.is_nft and a.name == "Stray #9" and a.image == "https://arweave.net/x.png"
+
+
+def test_alchemy_spam_uses_verdict_not_heuristics():
+    from scanners.ethereum import parse_alchemy_nfts
+    res = {"nfts": [
+        {"contract": {"address": "0xA", "name": "WEThBandits", "isSpam": False,
+                      "spamClassifications": ["Erc721DishonestTotalSupply"]},
+         "tokenId": "1979", "image": {"thumbnailUrl": "https://res.cloudinary.com/x.png"}},
+        {"contract": {"address": "0xB", "name": "Claim Rewards", "isSpam": True, "spamClassifications": ["Erc721TooManyOwners"]},
+         "tokenId": "1", "image": {}},
+    ]}
+    out = parse_alchemy_nfts(res)
+    assert out[("0xa", "1979")]["spam"] is False
+    assert out[("0xb", "1")]["spam"] is True

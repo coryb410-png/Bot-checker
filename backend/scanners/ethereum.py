@@ -165,7 +165,9 @@ def parse_alchemy_nfts(res) -> dict[tuple[str, str], dict]:
         img = n.get("image") or {}
         raw_meta = (n.get("raw") or {}).get("metadata") or {}
         url = img.get("thumbnailUrl") or img.get("cachedUrl") or img.get("originalUrl") or raw_meta.get("image")
-        spam = bool((contract.get("isSpam")) or (contract.get("spamClassifications")))
+        # Only Alchemy's actual verdict counts. spamClassifications lists minor
+        # heuristics (e.g. unusual supply) that legitimate collections often trip.
+        spam = contract.get("isSpam") in (True, "true", "True")
         name = n.get("name") or raw_meta.get("name") or (contract.get("name") and f"{contract['name']} #{tid}")
         out[(addr, tid)] = {"name": name, "image": safe_image(url), "spam": spam}
     return out
