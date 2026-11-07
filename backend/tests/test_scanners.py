@@ -366,3 +366,42 @@ def test_untracked_nfts_reach_holdings(monkeypatch):
     p = service.Store().create(["JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"], Method.FIFO)
     asyncio.run(service._find_untracked_nfts(p))
     assert [a.name for a in p.untracked_nfts] == ["Trump Sol Club #12"]
+
+
+def test_eth_held_nfts_and_image_refresh(monkeypatch):
+    import asyncio
+    monkeypatch.setenv("ALCHEMY_API_KEY", "k")
+
+    class FakeNft:
+        def __init__(self):
+            self.calls = []
+
+        async def get(self, url, params=None):
+            self.calls.append((url, params))
+            if url == "/getNFTsForOwner":
+                return {"ownedNfts": [{"contract": {"address": "0xABC", "symbol": "WEThB", "name": "The Weth Bandits"},
+                                       "tokenId": "301", "name": "WEThBandit #301",
+                                       "image": {"cachedUrl": "https://nft-cdn.alchemy.com/301.png"}}]}
+            if url == "/getNFTMetadata":
+                return {"contract": {"address": "0xabc", "name": "The Weth Bandits"}, "tokenId": params["tokenId"],
+                        "raw": {"metadata": {"name": f"WEThBandit #{params['tokenId']}", "image": "ipfs://Qm/5.png"}}}
+            raise AssertionError(url)
+
+        async def post(self, url, json=None):
+            # Cached metadata exists but without an image
+            return {"nfts": [{"contract": {"address": "0xabc", "name": "The Weth Bandits"}, "tokenId": "5"}]}
+
+    nft = FakeNft()
+    sc = EthereumScanner(http=object(), nft_http=nft)
+    held = asyncio.run(sc.held_nfts("0xme"))
+    assert [(a.contract, a.token_id, a.name, a.image) for a in held] == \
+        [("0xabc", "301", "WEThBandit #301", "https://nft-cdn.alchemy.com/301.png")]
+
+    from core.models import Asset, Chain, Leg, NormalizedTx
+    from datetime import datetime, timezone
+    a = Asset(Chain.ETHEREUM, "WEThB", contract="0xabc", decimals=0, is_nft=True, token_id="5", collection="0xabc")
+    tx = NormalizedTx(Chain.ETHEREUM, "0x1", datetime.now(timezone.utc), "0xme", [Leg(a, D(1))])
+    asyncio.run(sc._attach_nft_metadata([tx]))
+    got = tx.legs[0].asset
+    assert (got.name, got.image) == ("WEThBandit #5", "https://ipfs.io/ipfs/Qm/5.png")
+    assert ("/getNFTMetadata", {"contractAddress": "0xabc", "tokenId": "5", "refreshCache": "true"}) in nft.calls

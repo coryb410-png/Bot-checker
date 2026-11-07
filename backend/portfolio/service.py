@@ -168,22 +168,34 @@ def recompute(p: Portfolio, current_prices: dict[str, Decimal] | None = None) ->
 
 
 async def _find_untracked_nfts(p: Portfolio) -> None:
-    from scanners.solana import SolanaScanner
     held_keys = set()
     for t in p.txs:
         for l in t.legs:
             if l.asset.is_nft:
                 held_keys.add(l.asset.key)
-    extra = []
+    extra, owned_by_key = [], {}
     for chain, addr in p.addresses:
-        if chain != Chain.SOLANA:
+        if chain not in (Chain.SOLANA, Chain.ETHEREUM):
+            continue
+        sc = _scanner(chain)
+        if not hasattr(sc, "held_nfts"):
             continue
         try:
-            owned = await SolanaScanner().held_nfts(addr)
+            owned = await sc.held_nfts(addr)
         except Exception as e:
             p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
             continue
+        owned_by_key.update({a.key: a for a in owned})
         extra += [a for a in owned if a.key not in held_keys and not a.spam]
+    # Fill in photos/names the history lookup couldn't get for NFTs still owned
+    for t in p.txs:
+        for l in t.legs:
+            o = owned_by_key.get(l.asset.key) if l.asset.is_nft else None
+            if o and o.image and not l.asset.image:
+                # A token with no photo had no metadata either, so its name was a guess
+                l.asset = replace(l.asset, image=o.image, name=o.name or l.asset.name)
+            elif o and o.name and not l.asset.name:
+                l.asset = replace(l.asset, name=o.name)
     # Owned NFTs whose history we did read are already counted; keep only the rest
     p.untracked_nfts = list({a.key: a for a in extra}.values())
 

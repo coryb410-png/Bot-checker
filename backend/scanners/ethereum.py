@@ -26,6 +26,7 @@ ETH_EQUIVALENT = {
 }
 CATEGORIES = ["external", "internal", "erc20", "erc721", "erc1155", "specialnft"]
 WEI = Decimal(10) ** 18
+MAX_REFRESH = 25   # tokens per scan re-read from source when Alchemy has no image
 
 
 class EthereumScanner:
@@ -143,11 +144,48 @@ class EthereumScanner:
             except Exception:
                 continue   # images are a nice-to-have; never fail a scan over them
             meta.update(parse_alchemy_nfts(res))
+        # Alchemy's cache sometimes has no metadata for a token (new mint, slow
+        # IPFS). Ask it to re-read those from the source, a few at a time.
+        missing = [k for k in tokens_list if not (meta.get(k) or {}).get("image")][:MAX_REFRESH]
+        for c, tid in missing:
+            try:
+                res = await self.nft_http.get("/getNFTMetadata", params={
+                    "contractAddress": c, "tokenId": tid, "refreshCache": "true"})
+            except Exception:
+                continue
+            fresh = parse_alchemy_nfts({"nfts": [res]}).get((c, tid))
+            if fresh and (fresh["image"] or not meta.get((c, tid))):
+                meta[(c, tid)] = fresh
         for t in txs:
             for leg in t.legs:
                 m = meta.get((leg.asset.contract, leg.asset.token_id)) if leg.asset.is_nft else None
                 if m:
                     leg.asset = replace(leg.asset, **m)
+
+    async def held_nfts(self, owner: str) -> list[Asset]:
+        """Every NFT the wallet owns right now (Alchemy getNFTsForOwner).
+        Catches NFTs whose arrival the transfer history missed, and supplies
+        images for ones it did see."""
+        out, page_key = [], None
+        for _ in range(50):   # 100 per page: up to 5,000 NFTs
+            params = {"owner": owner, "withMetadata": "true", "pageSize": 100}
+            if page_key:
+                params["pageKey"] = page_key
+            res = await self.nft_http.get("/getNFTsForOwner", params=params)
+            items = res.get("ownedNfts") or []
+            meta = parse_alchemy_nfts({"nfts": items})
+            for n in items:
+                c = ((n.get("contract") or {}).get("address") or "").lower()
+                tid = str(n.get("tokenId") or "")
+                tid = str(int(tid, 16)) if tid.startswith("0x") else tid
+                m = meta.get((c, tid)) or {}
+                sym = (n.get("contract") or {}).get("symbol") or "NFT"
+                out.append(Asset(Chain.ETHEREUM, sym, contract=c, decimals=0, is_nft=True, token_id=tid,
+                                 collection=c, name=m.get("name"), image=m.get("image"), spam=bool(m.get("spam"))))
+            page_key = res.get("pageKey")
+            if not page_key:
+                break
+        return out
 
     async def balances(self, address: str) -> dict[str, Decimal]:
         eth = int(await self._rpc("eth_getBalance", [address, "latest"]), 16)
@@ -172,7 +210,8 @@ def parse_alchemy_nfts(res) -> dict[tuple[str, str], dict]:
             tid = str(int(tid, 16))
         img = n.get("image") or {}
         raw_meta = (n.get("raw") or {}).get("metadata") or {}
-        url = img.get("thumbnailUrl") or img.get("cachedUrl") or img.get("originalUrl") or raw_meta.get("image")
+        url = (img.get("thumbnailUrl") or img.get("cachedUrl") or img.get("pngUrl") or img.get("originalUrl")
+               or raw_meta.get("image") or raw_meta.get("image_url"))
         # Only Alchemy's actual verdict counts. spamClassifications lists minor
         # heuristics (e.g. unusual supply) that legitimate collections often trip.
         spam = contract.get("isSpam") in (True, "true", "True")
