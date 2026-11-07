@@ -11,7 +11,7 @@ interface Entry { address: string; chain: Chain; label?: string }
 // The networks people can add, shown as badges at the top of the page
 const NETWORKS: [string, string, string | null][] = [
   ["bitcoin", "Bitcoin", "BTC"], ["ethereum", "Ethereum", "ETH"], ["solana", "Solana", "SOL"],
-  ["cardano", "Cardano", "ADA"], ["robinhood", "Robinhood Chain", null],
+  ["cardano", "Cardano", "ADA"], ["xrp", "XRP Ledger", "XRP"], ["robinhood", "Robinhood Chain", null],
 ];
 
 export default function Home() {
@@ -66,7 +66,7 @@ export default function Home() {
         setBusy(false);
       }
     }
-    if (!chain) return setError("That isn't a valid Bitcoin, Ethereum, Solana or Cardano address, or a name like name.eth, name.sol or $handle.");
+    if (!chain) return setError("That isn't a valid Bitcoin, Ethereum, Solana, Cardano or XRP address, or a name like name.eth, name.sol or $handle.");
     if (entries.some((x) => x.address.toLowerCase() === address.toLowerCase())) return setError("That address is already in this portfolio.");
     setEntries([...entries, { address, chain, label }]);
     setInput("");

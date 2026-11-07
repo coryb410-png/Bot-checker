@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "ChainScope by MADBOY",
-  description: "Read-only history, holdings and profit/loss for Bitcoin, Ethereum, Solana and Cardano addresses.",
+  description: "Read-only history, holdings and profit/loss for Bitcoin, Ethereum, Solana, Cardano and XRP addresses.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

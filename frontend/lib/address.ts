@@ -1,5 +1,5 @@
 // Instant client-side checks. The API re-validates with full checksums.
-export type Chain = "bitcoin" | "ethereum" | "solana" | "robinhood" | "cardano";
+export type Chain = "bitcoin" | "ethereum" | "solana" | "robinhood" | "cardano" | "xrp";
 
 export const CHAIN_LABEL: Record<Chain, string> = {
   bitcoin: "Bitcoin",
@@ -7,6 +7,7 @@ export const CHAIN_LABEL: Record<Chain, string> = {
   solana: "Solana",
   robinhood: "Robinhood Chain",
   cardano: "Cardano",
+  xrp: "XRP Ledger",
 };
 
 const B58 = "[1-9A-HJ-NP-Za-km-z]";
@@ -18,6 +19,9 @@ export function detectChain(raw: string): Chain | null {
   if (new RegExp(`^[13]${B58}{25,34}$`).test(a)) return "bitcoin";
   if (/^(addr1|stake1)[02-9ac-hj-np-z]{50,}$/i.test(a)) return "cardano";
   if (new RegExp(`^(Ae2${B58}{52,62}|DdzFF${B58}{90,125})$`).test(a)) return "cardano";   // legacy Byron
+  // XRP Ledger: r… and 25–35 characters. Solana addresses are almost always
+  // 43–44, and the server checks the XRP checksum before scanning.
+  if (new RegExp(`^r${B58}{24,34}$`).test(a)) return "xrp";
   if (new RegExp(`^${B58}{32,44}$`).test(a)) return "solana";
   return null;
 }

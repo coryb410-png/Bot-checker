@@ -105,6 +105,9 @@ def _scanner(chain: Chain):
     if chain == Chain.CARDANO:
         from scanners.cardano import CardanoScanner
         return CardanoScanner()
+    if chain == Chain.XRP:
+        from scanners.xrp import XrpScanner
+        return XrpScanner()
     from scanners.solana import SolanaScanner
     return SolanaScanner()
 
@@ -194,7 +197,7 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
             p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
             return []
 
-    wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO)]
+    wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP)]
     for (_, addr), owned in zip(wallets, await asyncio.gather(*(owned_by(c, a) for c, a in wallets))):
         owned_by_key.update({a.key: a for a in owned})
         p.nft_owner.update({a.key: addr for a in owned})

@@ -1,4 +1,4 @@
-"""Address detection and validation for Bitcoin, Ethereum, Solana and Cardano.
+"""Address detection and validation for Bitcoin, Ethereum, Solana, Cardano and XRP.
 
 Validation is structural (checksums where the format has one), done before any
 API call so typos never cost a provider request.
@@ -99,6 +99,26 @@ def is_cardano(addr: str) -> bool:
     return False
 
 
+XRP_ALPHABET = "rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz"
+XRP_INDEX = {c: i for i, c in enumerate(XRP_ALPHABET)}
+
+
+def is_xrp(addr: str) -> bool:
+    """Classic XRP Ledger address: r…, base58 in Ripple's alphabet, 25 bytes
+    (type 0x00 + 20-byte account ID + 4-byte double-SHA256 checksum)."""
+    a = addr.strip()
+    if not a.startswith("r") or not 25 <= len(a) <= 35 or any(c not in XRP_INDEX for c in a):
+        return False
+    n = 0
+    for c in a:
+        n = n * 58 + XRP_INDEX[c]
+    raw = n.to_bytes((n.bit_length() + 7) // 8, "big") if n else b""
+    raw = b"\x00" * (len(a) - len(a.lstrip("r"))) + raw
+    if len(raw) != 25 or raw[0] != 0:
+        return False
+    return hashlib.sha256(hashlib.sha256(raw[:21]).digest()).digest()[:4] == raw[21:]
+
+
 _ETH_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
 
@@ -125,9 +145,11 @@ def detect_chain(addr: str) -> Chain:
         return Chain.BITCOIN
     if is_cardano(addr):
         return Chain.CARDANO
+    if is_xrp(addr):          # checksummed, so a Solana address can't pass by accident
+        return Chain.XRP
     if is_solana(addr):
         return Chain.SOLANA
-    raise InvalidAddress("Not a valid Bitcoin, Ethereum, Solana or Cardano address")
+    raise InvalidAddress("Not a valid Bitcoin, Ethereum, Solana, Cardano or XRP address")
 
 
 def normalize(addr: str, chain: Chain) -> str:

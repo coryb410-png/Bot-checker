@@ -20,12 +20,25 @@ from scanners.base import Http, ProviderError, env
 
 from .cache import Cache
 
-PLATFORM = {Chain.ETHEREUM: "ethereum", Chain.SOLANA: "solana", Chain.CARDANO: "cardano"}
-NATIVE_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "ADA": "cardano"}
+PLATFORM = {Chain.ETHEREUM: "ethereum", Chain.SOLANA: "solana", Chain.CARDANO: "cardano", Chain.XRP: "xrp"}
+NATIVE_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "ADA": "cardano", "XRP": "ripple"}
 log = logging.getLogger("chainscope.pricing")
 SERIES_TTL = 6 * 3600
 DIRECTORY_TTL = 86400
 CURRENT_TTL = 120
+
+
+def _xrp_keys(contract: str) -> list[str]:
+    """XRP Ledger tokens are "currency.issuer"; listings write the currency as
+    text or as 40-hex, joined by "." or "-". Try each form."""
+    cur, _, issuer = contract.partition(".")
+    if len(cur) == 40:
+        text = bytes.fromhex(cur).rstrip(b"\x00").decode("utf-8", "ignore")
+        hexed = cur
+    else:
+        text, hexed = cur, cur.encode().hex().upper().ljust(40, "0")
+    forms = [f"{c}{sep}{issuer}" for c in (hexed, text) for sep in (".", "-")]
+    return [f.lower() for f in forms] + [issuer.lower()]
 
 
 class PriceService:
@@ -85,6 +98,9 @@ class PriceService:
             return None   # junk airdrops are never priced
         if self._directory:
             platform = PLATFORM[a.chain]
+            if a.chain == Chain.XRP:
+                return next((self._directory[(platform, k)] for k in _xrp_keys(a.contract)
+                             if (platform, k) in self._directory), None)
             key = a.contract if a.chain == Chain.SOLANA else a.contract.lower()
             return self._directory.get((platform, key))   # not listed = no market price
         if a.key not in self._ids:

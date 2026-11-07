@@ -286,7 +286,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
                   {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
                 <select aria-label="Filter by network" value={chain} onChange={(e) => setChain(e.target.value)} style={{ width: "auto" }}>
-                  <option value="">All networks</option><option value="bitcoin">Bitcoin</option><option value="ethereum">Ethereum</option><option value="solana">Solana</option><option value="robinhood">Robinhood Chain</option><option value="cardano">Cardano</option>
+                  <option value="">All networks</option><option value="bitcoin">Bitcoin</option><option value="ethereum">Ethereum</option><option value="solana">Solana</option><option value="robinhood">Robinhood Chain</option><option value="cardano">Cardano</option><option value="xrp">XRP Ledger</option>
                 </select>
                 <label className="row" style={{ gap: 6, fontSize: 14 }}>
                   <input type="checkbox" checked={nftOnly} onChange={(e) => setNftOnly(e.target.checked)} style={{ width: "auto" }} />
