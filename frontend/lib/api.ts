@@ -6,7 +6,17 @@ const BASE = "";
 // (about 30-60 seconds). Those requests never reached ChainScope, so retrying
 // them is safe; waiting here means visitors don't see an error.
 const WAKING = new Set([502, 503, 504]);
-const RETRY_DELAYS_MS = [4000, 8000, 12000, 16000, 20000];
+// ~2 minutes in all: a sleeping free server can take a minute or more to start
+const RETRY_DELAYS_MS = [3000, 5000, 8000, 10000, 12000, 15000, 15000, 15000, 20000, 20000];
+
+// Ping the backend straight from the browser to wake it (see the proxy route).
+// no-cors: we never read the reply, the visit itself is what counts.
+let lastWake = 0;
+function wakeBackend(url: string | null) {
+  if (!url || !/^https:\/\//.test(url) || Date.now() - lastWake < 20_000) return;
+  lastWake = Date.now();
+  fetch(`${url}/api/health`, { mode: "no-cors", cache: "no-store" }).catch(() => {});
+}
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let r: Response | null = null;
@@ -24,6 +34,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     const waking = !r || (WAKING.has(r.status) && (r.headers.get("x-chainscope-waking") === "1"
       || !(r.headers.get("content-type") ?? "").includes("json")));
     if (!waking) break;
+    wakeBackend(r?.headers.get("x-chainscope-backend") ?? null);
     if (attempt >= RETRY_DELAYS_MS.length) break;
     await new Promise((res) => setTimeout(res, RETRY_DELAYS_MS[attempt]));
   }

@@ -7,6 +7,10 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 
 const BACKEND = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
+// A sleeping free Render server isn't woken by requests from this server
+// (another Render service), so the visitor's browser is told where the backend
+// is and pings it directly; that outside visit wakes it.
+const WAKING_HEADERS = { "x-chainscope-waking": "1", "x-chainscope-backend": BACKEND };
 
 async function forward(req: NextRequest, { params }: { params: { path: string[] } }) {
   if (!BACKEND) {
@@ -30,7 +34,7 @@ async function forward(req: NextRequest, { params }: { params: { path: string[] 
         { detail: r.status === 502 || r.status === 503
             ? "The ChainScope server is waking up. Wait about 30 seconds and try again."
             : `The ChainScope server answered with an error (${r.status}). Try again in a moment.` },
-        { status: r.status, headers: { "x-chainscope-waking": "1" } },
+        { status: r.status, headers: WAKING_HEADERS },
       );
     }
     return new Response(r.status === 204 ? null : text, {
@@ -41,7 +45,7 @@ async function forward(req: NextRequest, { params }: { params: { path: string[] 
     console.error(`[proxy] ${req.method} ${url} failed:`, e);
     return Response.json(
       { detail: "The ChainScope server is waking up or unreachable. Wait about 30 seconds and try again." },
-      { status: 502, headers: { "x-chainscope-waking": "1" } },
+      { status: 502, headers: WAKING_HEADERS },
     );
   }
 }
