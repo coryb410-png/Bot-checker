@@ -31,7 +31,10 @@ KNOWN_MINTS = {
 log = logging.getLogger("chainscope.solana")
 # Marketplaces Helius doesn't name on its own, by program address.
 # Add an entry when a marketplace's trades show without a name.
-MARKETPLACE_PROGRAMS: dict[str, str] = {}
+MARKETPLACE_PROGRAMS: dict[str, str] = {
+    # Seen on a Retardio Babies purchase (Aug 31) the owner confirmed was on Solonchain
+    "F9SixdqdmEBP5kprp2gZPZNeMmfHJRCTMFjN22dx3akf": "Solonchain",
+}
 # Programs that appear in most transactions and say nothing about the trade
 INFRA_PROGRAMS = {
     "ComputeBudget111111111111111111111111111111", "11111111111111111111111111111111",
