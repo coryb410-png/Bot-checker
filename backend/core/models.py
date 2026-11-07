@@ -111,6 +111,7 @@ class NormalizedTx:
     # Marketplace activity the scanner recognised that moves no balance of
     # its own: "nft_listing", "nft_cancel_listing", "nft_bid", "nft_cancel_bid"
     hint: str | None = None
+    programs: list[str] = field(default_factory=list)   # every program/contract the tx touched
     # Set by the classifier
     tx_type: TxType | None = None
     label: str | None = None

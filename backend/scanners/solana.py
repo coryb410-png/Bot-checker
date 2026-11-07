@@ -29,6 +29,18 @@ KNOWN_MINTS = {
     "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": ("BONK", 5, "bonk"),
 }
 log = logging.getLogger("chainscope.solana")
+# Marketplaces Helius doesn't name on its own, by program address.
+# Add an entry when a marketplace's trades show without a name.
+MARKETPLACE_PROGRAMS: dict[str, str] = {}
+# Programs that appear in most transactions and say nothing about the trade
+INFRA_PROGRAMS = {
+    "ComputeBudget111111111111111111111111111111", "11111111111111111111111111111111",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+    "auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg", "Sysvar1nstructions1111111111111111111111111",
+    "BGUMAp9Gq7iTEuizy4pqaxsTyUCBK68MDfK752saRPUY", "cmtDvXumGCrqC1Age74AVPhSRVXJMd8PJS91L8KbNCK",
+    "noopb9bkMVfRPU8AsbpTUg8AQkHtKwMYZiFUjNRtMmV", "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+}
 NFT_STANDARDS = {"NonFungible", "ProgrammableNonFungible", "NonFungibleEdition", "Compressed"}
 
 
@@ -150,10 +162,12 @@ class SolanaScanner:
             chain=Chain.SOLANA, tx_hash=raw["signature"],
             timestamp=datetime.fromtimestamp(raw["timestamp"], timezone.utc),
             wallet=me, legs=legs, fee=fee, fee_asset=SOL if fee else None,
-            source=raw.get("source") if raw.get("source") not in (None, "UNKNOWN", "SYSTEM_PROGRAM") else None,
+            source=(raw.get("source") if raw.get("source") not in (None, "UNKNOWN", "SYSTEM_PROGRAM")
+                    else next((MARKETPLACE_PROGRAMS[p] for p in _programs(raw) if p in MARKETPLACE_PROGRAMS), None)),
             interacted_with=next((i.get("programId") for i in raw.get("instructions") or []), None),
             success=raw.get("transactionError") is None,
             hint=hint,
+            programs=_programs(raw),
         )
 
     def _apply_nft_event(self, raw: dict, me: str, net: dict, assets: dict, cps: dict) -> str | None:
@@ -193,6 +207,16 @@ class SolanaScanner:
         if buyer == me and net.get(SOL.key, 0) >= 0 and price:
             net[SOL.key] = -price; assets[SOL.key] = SOL
         return None
+
+
+def _programs(raw: dict) -> list[str]:
+    """Programs this transaction called, outer and inner, minus plumbing."""
+    seen: list[str] = []
+    for ins in raw.get("instructions") or []:
+        for p in [ins.get("programId")] + [i.get("programId") for i in ins.get("innerInstructions") or []]:
+            if p and p not in INFRA_PROGRAMS and p not in seen:
+                seen.append(p)
+    return seen
 
 
 def _compressed_events(raw: dict) -> list[dict]:

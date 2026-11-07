@@ -308,7 +308,7 @@ def _highlights_json(p) -> dict:
 def _tx_json(t, realized: dict):
     return {
         "hash": t.tx_hash, "chain": t.chain.value, "wallet": t.wallet, "date": t.timestamp,
-        "type": t.tx_type, "label": t.label, "spam": is_spam_tx(t), "source": t.source, "success": t.success,
+        "type": t.tx_type, "label": t.label, "spam": is_spam_tx(t), "programs": t.programs[:6], "source": t.source, "success": t.success,
         "legs": [{"asset": l.asset.symbol, "name": l.asset.name, "nft": l.asset.is_nft,
                   "token_id": l.asset.token_id, "image": l.asset.image, "spam": l.asset.spam,
                   "compressed": l.asset.compressed,

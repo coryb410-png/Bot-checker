@@ -311,3 +311,17 @@ def test_blur_pool_is_priced_as_eth(monkeypatch):
     pool = next(l.asset for l in tx.legs if l.asset.symbol == "BLUR POOL")
     assert pool.coingecko_id == "ethereum"
     assert classify_all([tx], {ME_ETH})[0].tx_type == TxType.NFT_SALE
+
+
+def test_programs_recorded_and_unknown_marketplace_named(monkeypatch):
+    from scanners import solana as sol
+    monkeypatch.setenv("HELIUS_API_KEY", "k")
+    monkeypatch.setitem(sol.MARKETPLACE_PROGRAMS, "SoLonMarket1111111111111111111111111111111", "Solonchain")
+    sc = SolanaScanner(http=object(), rpc=object())
+    tx = sc.normalize({"signature": "x", "timestamp": 1_762_000_000, "fee": 5000, "feePayer": ME_SOL,
+        "transactionError": None, "source": "UNKNOWN", "nativeTransfers": [], "tokenTransfers": [],
+        "instructions": [{"programId": "ComputeBudget111111111111111111111111111111", "innerInstructions": []},
+                         {"programId": "SoLonMarket1111111111111111111111111111111",
+                          "innerInstructions": [{"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}]}]}, ME_SOL)
+    assert tx.programs == ["SoLonMarket1111111111111111111111111111111"]
+    assert tx.source == "Solonchain"
