@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import NftThumb from "@/components/NftThumb";
 import Highlights from "@/components/Highlights";
+import NftGallery from "@/components/NftGallery";
+import ValueChart from "@/components/ValueChart";
 import { BrandMark, Monkey, Say, moodFor } from "@/components/Brand";
 import { CHAIN_LABEL, Chain, shorten } from "@/lib/address";
 import { api, Holding, Method, money, Tx, WalletStatus } from "@/lib/api";
@@ -135,10 +137,12 @@ export default function WalletPage({ params }: { params: { id: string } }) {
 
       {scanning && (
         <div className="panel scanning" role="status">
-          <Say mood={st.status === "pricing" ? "cash" : "shh"} size="lg">
-            <strong>{st.status === "pricing" ? "Adding up the money…" : "Reading the blockchain quietly…"}</strong>
+          <Say mood={st.status === "pricing" || st.status === "valuing" ? "cash" : "shh"} size="lg">
+            <strong>{st.status === "valuing" ? "Checking NFT floor prices…" : st.status === "pricing" ? "Adding up the money…" : "Reading the blockchain quietly…"}</strong>
             <p style={{ color: "var(--muted)", margin: "4px 0 0" }}>
-              {st.status === "pricing" ? "Looking up what everything was worth on the day it moved." : "Large wallets take a few minutes. You can leave this page open; it updates by itself."}
+              {st.status === "valuing" ? "Looking up what each NFT collection is selling for on Magic Eden and OpenSea."
+                : st.status === "pricing" ? "Looking up what everything was worth on the day it moved."
+                : "Large wallets take a few minutes. You can leave this page open; it updates by itself."}
             </p>
           </Say>
         </div>
@@ -157,7 +161,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
       {sm && (
         <>
           <section className="grid4">
-            <div className="panel stat"><Monkey mood="cash" size="sm" /><span className="eyebrow">Portfolio value</span><div className="v">{money(sm.portfolio_value)}</div><div className="s">At current prices</div></div>
+            <div className="panel stat"><Monkey mood="cash" size="sm" /><span className="eyebrow">Portfolio value</span><div className="v">{money(sm.portfolio_value)}</div><div className="s">{Number(sm.nft_value) > 0 ? `Incl. ${money(sm.nft_value)} in NFTs at floor` : "At current prices"}</div></div>
             <div className="panel stat">
               <span className="eyebrow">Realized P&amp;L</span>
               <div className={`v ${Number(sm.realized_pnl) >= 0 ? "gain" : "loss"}`}>{money(sm.realized_pnl, true)}</div>
@@ -168,7 +172,11 @@ export default function WalletPage({ params }: { params: { id: string } }) {
             <div className="panel stat"><span className="eyebrow">Fees paid</span><div className="v">{money(sm.fees_paid)}</div><div className="s">{sm.assets_sold} assets sold</div></div>
           </section>
 
+          <ValueChart id={id} refreshKey={st.updated_at} />
+
           <Highlights h={sm.highlights} />
+
+          <NftGallery holdings={holdings} />
 
           {sm.warnings.length > 0 && (
             <details className="panel">
@@ -181,7 +189,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
 
           <section className="panel" style={{ display: "grid", gap: 12 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
-              <h2>Holdings</h2>
+              <h2>Coins &amp; tokens</h2>
               <label className="row" style={{ gap: 8, fontSize: 14 }}>Cost basis
                 <select value={st.method} onChange={(e) => changeMethod(e.target.value as Method)} style={{ width: "auto" }}>
                   <option value="fifo">FIFO</option><option value="average">Average cost</option>
@@ -192,7 +200,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
               <table>
                 <thead><tr><th>Asset</th><th className="r">Quantity</th><th className="r">Price</th><th className="r">Value</th><th className="r">Cost basis</th><th className="r">Unrealized</th></tr></thead>
                 <tbody>
-                  {holdings.map((h) => (
+                  {holdings.filter((h) => !h.nft).map((h) => (
                     <tr key={h.key}>
                       <td><span className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
                         {h.nft ? <NftThumb src={h.image} name={h.name ?? h.asset} spam={h.spam} size={36} /> : <span className={`chip ${h.chain}`}>{h.chain.slice(0, 3)}</span>}

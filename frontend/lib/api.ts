@@ -43,6 +43,9 @@ export type Method = "fifo" | "average";
 
 export interface Summary {
   portfolio_value: string | null;
+  nft_value?: string | null;     // NFTs at collection floor price
+  nfts_valued?: number;
+  nfts_held?: number;
   realized_pnl: string | null;
   pnl_complete: boolean;
   transactions: number;
@@ -67,7 +70,7 @@ export interface Highlights {
 }
 export interface WalletStatus {
   id: string;
-  status: "queued" | "scanning" | "pricing" | "ready" | "error";
+  status: "queued" | "scanning" | "pricing" | "valuing" | "ready" | "error";
   error: string | null;
   method: Method;
   demo: boolean;
@@ -92,7 +95,13 @@ export interface Holding {
   untracked?: boolean;   // owned, but its arrival wasn't found in the history (e.g. Metaplex Core NFTs)
   price: string | null; value: string | null;
   cost_basis: string | null; unrealized_pnl: string | null; unknown_basis_qty: string;
+  collection?: string | null;
+  floor?: Floor | null;
 }
+
+export interface Floor { amount: string; currency: string; source: string; url: string | null; usd: string | null }
+export interface ValuePoint { date: string; value: string }
+export interface Performance { value_over_time: ValuePoint[]; value_basis: string }
 
 export const api = {
   scan: (addresses: string[], method: Method, labels: Record<string, string> = {}) =>
@@ -110,6 +119,7 @@ export const api = {
     return call<{ total: number; items: Tx[] }>(`/api/wallets/${id}/transactions?${q}`);
   },
   holdings: (id: string) => call<Holding[]>(`/api/wallets/${id}/holdings`),
+  performance: (id: string) => call<Performance>(`/api/wallets/${id}/performance`),
   pnl: (id: string, method: Method) => call(`/api/wallets/${id}/pnl?method=${method}`),
   setCost: (id: string, tx_hash: string, total_cost_usd: number) =>
     call(`/api/wallets/${id}/cost-basis`, { method: "PUT", body: JSON.stringify({ tx_hash, total_cost_usd }) }),

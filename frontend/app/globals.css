@@ -117,3 +117,21 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 .hl .meta { color: var(--muted); font-size: 13px; }
 
 .chip.plain::before { display: none; }
+
+/* Segmented control (chart ranges) */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
+.seg button { font: 600 13px var(--body); border: 0; background: var(--surface); color: var(--muted); padding: 7px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+/* NFT gallery */
+.gal-group { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); }
+.gal-group:first-of-type { border-top: 0; padding-top: 0; }
+.gal-head { display: flex; gap: 8px 12px; align-items: baseline; justify-content: space-between; flex-wrap: wrap; }
+.gal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+.gal-tile { display: grid; gap: 4px; min-width: 0; }
+.gal-tile .nm { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gal-tile .sub { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.gal-tile .tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.gal-tile .tags .chip { font-size: 10px; padding: 3px 6px; }
+@media (max-width: 420px) { .gal-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); } }

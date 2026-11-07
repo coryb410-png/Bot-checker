@@ -141,3 +141,9 @@ Users can tick **Show spam** to see what was hidden. Rules live in
 
 Not tax advice: the P&L engine follows standard FIFO/average-cost accounting,
 but tax treatment varies by country.
+
+## NFT floors, gallery and value chart
+
+- **Floor prices:** Solana NFTs are valued at their Magic Eden collection floor and Ethereum NFTs at their OpenSea (then LooksRare) floor via Alchemy. These floors count toward the portfolio total and unrealized P&L. Collections with no floor, such as cNFTs Magic Eden doesn't list, stay unvalued.
+- **NFT gallery:** held NFTs are grouped by collection, showing the floor, the count and the total value of each group.
+- **Portfolio value chart:** a daily value of coins and tokens over 30 days, 90 days or 1 year, built by replaying history at each day's price. The free CoinGecko plan limits it to the last 365 days.

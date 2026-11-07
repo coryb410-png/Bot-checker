@@ -126,7 +126,7 @@ class SolanaScanner:
         is_nft = m["is_nft"] or compressed or (standard in NFT_STANDARDS)
         return Asset(Chain.SOLANA, m["symbol"], contract=mint, decimals=m["decimals"], is_nft=is_nft,
                      token_id=mint if is_nft else None, name=m.get("name"), image=m.get("image"),
-                     spam=bool(m.get("spam")), compressed=compressed)
+                     spam=bool(m.get("spam")), compressed=compressed, collection=m.get("collection"))
 
     def normalize(self, raw: dict, me: str) -> NormalizedTx:
         net: dict[str, Decimal] = defaultdict(Decimal)
@@ -272,6 +272,8 @@ def parse_das_asset(a: dict) -> dict:
         "name": md.get("name"),
         "image": safe_image(img),
         "compressed": compressed,
+        "collection": next((g.get("group_value") for g in a.get("grouping") or []
+                            if g.get("group_key") == "collection"), None),
         # Scam airdrops (very often cNFTs) advertise links in their name or description
         "spam": looks_like_scam(md.get("name")) or looks_like_scam_description(md.get("description")),
     }

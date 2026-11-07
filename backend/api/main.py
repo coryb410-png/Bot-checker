@@ -23,6 +23,8 @@ import secrets
 
 from portfolio.demo import build_demo
 from portfolio.highlights import compute_highlights
+from portfolio.history import value_history
+from pricing.floors import collection_key
 from portfolio.pnl import Method
 from portfolio.service import Store, progress_key, recompute, run_scan
 from pricing.coingecko import PriceService
@@ -170,7 +172,10 @@ async def wallet(pid: str):
         "network_errors": [{"chain": k.split(":", 1)[0], "address": k.split(":", 1)[1], "error": v}
                            for k, v in p.network_errors.items()],
         "summary": None if not r else {
-            "portfolio_value": usd(r.portfolio_value),
+            "portfolio_value": usd(r.portfolio_value + _untracked_value(p)),
+            "nft_value": usd(_nft_value(p)),
+            "nfts_valued": sum(1 for a in _nft_holdings(p) if a["value"] is not None),
+            "nfts_held": len(_nft_holdings(p)),
             "realized_pnl": usd(r.realized_total),
             "pnl_complete": r.complete,
             "transactions": len({t.tx_hash for t in p.txs if not is_spam_tx(t)}),
@@ -227,24 +232,32 @@ async def transaction(tx_hash: str, portfolio: str):
 
 @app.get("/api/wallets/{pid}/holdings")
 async def holdings(pid: str):
-    p = _portfolio(pid)
+    return _holdings_json(_portfolio(pid))
+
+
+def _holdings_json(p) -> list[dict]:
     items = [a for a in (p.report.assets.values() if p.report else []) if a.quantity > 0]
     items.sort(key=lambda a: a.market_value or Decimal(0), reverse=True)
-    images = {l.asset.key: l.asset for t in p.txs for l in t.legs if l.asset.is_nft}
-    return [{"asset": a.symbol, "chain": a.chain, "key": a.asset_key, "quantity": s(a.quantity),
-             "nft": a.asset_key in images, "name": getattr(images.get(a.asset_key), "name", None),
-             "image": getattr(images.get(a.asset_key), "image", None),
-             "spam": getattr(images.get(a.asset_key), "spam", False),
-             "compressed": getattr(images.get(a.asset_key), "compressed", False),
-             "price": usd(a.current_price), "value": usd(a.market_value),
-             "cost_basis": usd(a.cost_basis), "unrealized_pnl": usd(a.unrealized),
-             "unknown_basis_qty": s(a.unknown_qty)} for a in items] + [
-        # Owned NFTs the history never showed arriving (e.g. Metaplex Core)
-        {"asset": n.symbol, "chain": n.chain.value, "key": n.key, "quantity": "1", "nft": True,
-         "name": n.name, "image": n.image, "spam": False, "compressed": n.compressed,
-         "price": None, "value": None, "cost_basis": None, "unrealized_pnl": None,
-         "unknown_basis_qty": "1", "untracked": True}
-        for n in getattr(p, "untracked_nfts", [])]
+    nfts = {l.asset.key: l.asset for t in p.txs for l in t.legs if l.asset.is_nft}
+    out = []
+    for a in items:
+        n = nfts.get(a.asset_key)
+        out.append({"asset": a.symbol, "chain": a.chain, "key": a.asset_key, "quantity": s(a.quantity),
+                    "nft": n is not None, "name": getattr(n, "name", None), "image": getattr(n, "image", None),
+                    "spam": getattr(n, "spam", False), "compressed": getattr(n, "compressed", False),
+                    "collection": collection_key(n) if n else None, "floor": _floor_json(p, n) if n else None,
+                    "price": usd(a.current_price), "value": usd(a.market_value),
+                    "cost_basis": usd(a.cost_basis), "unrealized_pnl": usd(a.unrealized),
+                    "unknown_basis_qty": s(a.unknown_qty), "untracked": False})
+    # Owned NFTs the history never showed arriving (e.g. Metaplex Core)
+    for n in getattr(p, "untracked_nfts", []):
+        f = _floor_json(p, n)
+        out.append({"asset": n.symbol, "chain": n.chain.value, "key": n.key, "quantity": "1", "nft": True,
+                    "name": n.name, "image": n.image, "spam": False, "compressed": n.compressed,
+                    "collection": collection_key(n), "floor": f,
+                    "price": f["usd"] if f else None, "value": f["usd"] if f else None,
+                    "cost_basis": None, "unrealized_pnl": None, "unknown_basis_qty": "1", "untracked": True})
+    return out
 
 
 @app.get("/api/wallets/{pid}/pnl")
@@ -281,22 +294,56 @@ async def set_cost(pid: str, body: CostRequest):
 
 @app.get("/api/wallets/{pid}/performance")
 async def performance(pid: str):
-    """Running realized P&L over time (portfolio value history needs daily
-    snapshots from the pricing table; see README roadmap)."""
+    """Daily value of coins and tokens, plus running realized P&L."""
     p = _portfolio(pid)
     if not p.report:
         raise HTTPException(409, "Scan still running.")
+    if p.value_history is None:
+        try:
+            p.value_history = await value_history(p, prices)
+        except Exception as e:   # the chart is optional; never break the page
+            import logging
+            logging.getLogger("chainscope").warning("value history failed: %s", str(e)[:200])
+            p.value_history = []
     total, series = Decimal(0), []
     for d in sorted(p.report.disposals, key=lambda d: d.timestamp):
         if d.realized is not None:
             total += d.realized
         series.append({"date": d.timestamp, "cumulative_realized": usd(total)})
-    return {"realized_over_time": series}
+    return {"value_over_time": p.value_history,
+            "value_basis": "Coins and tokens at each day's price. NFTs are valued at today's floor in the total only.",
+            "realized_over_time": series}
 
 
 @app.get("/api/health")
 async def health():
     return {"ok": True}
+
+
+def _floor_json(p, a) -> dict | None:
+    f = getattr(p, "floors", {}).get(collection_key(a))
+    if not f:
+        return None
+    rate = getattr(p, "native_usd", {}).get(f.currency)
+    return {"amount": s(f.amount), "currency": f.currency, "source": f.source, "url": f.url,
+            "usd": usd(f.amount * rate) if rate else None}
+
+
+def _untracked_value(p) -> Decimal:
+    total = Decimal(0)
+    for n in getattr(p, "untracked_nfts", []):
+        f = _floor_json(p, n)
+        if f and f["usd"]:
+            total += Decimal(f["usd"])
+    return total
+
+
+def _nft_holdings(p) -> list[dict]:
+    return [h for h in _holdings_json(p) if h["nft"]]
+
+
+def _nft_value(p) -> Decimal:
+    return sum((Decimal(h["value"]) for h in _nft_holdings(p) if h["value"]), Decimal(0))
 
 
 def _highlights_json(p) -> dict:

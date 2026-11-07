@@ -6,11 +6,13 @@ import { useState } from "react";
 // fall back to a placeholder if broken, and likely-spam items stay hidden
 // until the viewer chooses to reveal them.
 // `link={false}` renders a plain image, for use inside another link or button.
-export default function NftThumb({ src, name, spam, size = 56, link = true }: { src: string | null; name: string; spam?: boolean; size?: number; link?: boolean }) {
+// size="fill" makes a square that fills its container (gallery tiles).
+export default function NftThumb({ src, name, spam, size = 56, link = true }: { src: string | null; name: string; spam?: boolean; size?: number | "fill"; link?: boolean }) {
   const [broken, setBroken] = useState(false);
   const [show, setShow] = useState(!spam);
   const box: React.CSSProperties = {
-    width: size, height: size, borderRadius: 8, flex: "none", background: "var(--sunk)",
+    ...(size === "fill" ? { width: "100%", aspectRatio: "1 / 1", maxWidth: "100%" } : { width: size, height: size }),
+    borderRadius: 8, flex: "none", background: "var(--sunk)",
     border: "1px solid var(--line)", overflow: "hidden", display: "grid", placeItems: "center",
   };
   if (!src || broken) {

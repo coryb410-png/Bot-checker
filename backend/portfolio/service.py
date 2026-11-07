@@ -18,7 +18,7 @@ from dataclasses import replace
 from classifiers.classify import classify_all
 from classifiers.spam import is_spam_tx, mark_spam, without_spam
 from core.addresses import detect_chain, normalize
-from core.models import Chain, NormalizedTx
+from core.models import Asset, Chain, NormalizedTx
 from portfolio.pnl import Method, PnLReport, compute_pnl
 from pricing.coingecko import PriceService
 
@@ -43,6 +43,9 @@ class Portfolio:
     # NFTs the wallet owns that its history never showed arriving (e.g. Metaplex
     # Core NFTs, which don't move as tokens). Shown in holdings, no cost basis.
     untracked_nfts: list = field(default_factory=list)
+    floors: dict = field(default_factory=dict)        # collection key -> Floor
+    native_usd: dict = field(default_factory=dict)    # "SOL"/"ETH" -> current USD price
+    value_history: list | None = None                 # cached chart points
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime | None = None
 
@@ -135,7 +138,14 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
         p.txs = p.txs + new
         mark_spam(p.txs)
         await _find_untracked_nfts(p)
-        recompute(p, await prices.current(_held_assets(p)))
+        current = await prices.current(_held_assets(p) + [NATIVE_SOL, NATIVE_ETH])
+        recompute(p, current)
+
+        p.status = "valuing"
+        nft_prices = await _value_nfts(p, current)
+        if nft_prices:
+            recompute(p, {**current, **nft_prices})
+        p.value_history = None
         p.status = "ready"
         p.updated_at = datetime.now(timezone.utc)
     except Exception as e:  # surfaced to the UI
@@ -176,6 +186,40 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
         extra += [a for a in owned if a.key not in held_keys and not a.spam]
     # Owned NFTs whose history we did read are already counted; keep only the rest
     p.untracked_nfts = list({a.key: a for a in extra}.values())
+
+
+NATIVE_SOL = Asset(Chain.SOLANA, "SOL", decimals=9, coingecko_id="solana")
+NATIVE_ETH = Asset(Chain.ETHEREUM, "ETH", coingecko_id="ethereum")
+_floor_service = None
+
+
+async def _value_nfts(p: Portfolio, current: dict) -> dict:
+    """Value every NFT held at its collection's floor price (in USD)."""
+    from pricing.floors import FloorService, collection_key
+    global _floor_service
+    _floor_service = _floor_service or FloorService()
+
+    held = [a for k, a in _nft_assets(p).items()
+            if p.report and k in p.report.assets and p.report.assets[k].quantity > 0]
+    held += list(p.untracked_nfts)
+    if not held:
+        return {}
+    try:
+        p.floors = await _floor_service.floors_for(held)
+    except Exception:
+        p.floors = {}
+    p.native_usd = {"SOL": current.get(NATIVE_SOL.key), "ETH": current.get(NATIVE_ETH.key)}
+    out = {}
+    for a in held:
+        f = p.floors.get(collection_key(a))
+        usd = p.native_usd.get(f.currency) if f else None
+        if f and usd:
+            out[a.key] = f.amount * usd
+    return out
+
+
+def _nft_assets(p: Portfolio) -> dict:
+    return {l.asset.key: l.asset for t in p.txs for l in t.legs if l.asset.is_nft and not l.asset.spam}
 
 
 def _held_assets(p: Portfolio):

@@ -119,7 +119,7 @@ class RobinhoodScanner:
                 inst = total.get("token_instance") or {}
                 name = ((inst.get("metadata") or {}).get("name")) or f"{tok.get('name') or tok.get('symbol') or 'NFT'} #{total['token_id']}"
                 asset = Asset(Chain.ROBINHOOD, tok.get("symbol") or "NFT", contract=contract, decimals=0, is_nft=True,
-                              token_id=str(total["token_id"]), name=name,
+                              token_id=str(total["token_id"]), name=name, collection=contract,
                               image=safe_image(inst.get("image_url") or (inst.get("metadata") or {}).get("image")),
                               spam=spam)
                 qty = Decimal(int(total.get("value") or 1)) if kind != "ERC-721" else Decimal(1)

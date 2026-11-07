@@ -38,6 +38,7 @@ class PriceService:
         self._directory: dict[tuple[str, str], str] = {}
         self._directory_at = 0.0
         self._series: dict[str, tuple[list[int], list[Decimal]]] = {}
+        self._covered: dict[str, tuple[float, float]] = {}   # cid -> (from ts, fetched at)
 
     async def _load_directory(self) -> None:
         """Download CoinGecko's whole coin list with contract addresses once a
@@ -80,15 +81,22 @@ class PriceService:
                 self._ids[a.key] = None   # unlisted token: value stays unknown
         return self._ids[a.key]
 
-    async def _load(self, cid: str, start: datetime, end: datetime) -> None:
-        if cid in self._series:
-            return
+    async def _load(self, cid: str, start: datetime, end: datetime | None = None) -> None:
+        """Daily-ish USD prices for cid from start through today. Cached and
+        shared by every scan; refetched after 6 hours or when an older start
+        is needed. (Earlier versions cached the first scan's range forever.)"""
         now = datetime.now(timezone.utc)
-        frm, to = start - timedelta(days=1), min(end + timedelta(days=1), now)
+        frm, to = start - timedelta(days=1), now
         if self.history_days is not None:
             frm = max(frm, now - timedelta(days=self.history_days))
+        cov = self._covered.get(cid)
+        if cov and cov[0] <= frm.timestamp() + 86400 and time.time() - cov[1] < 6 * 3600:
+            return
+        if cov:
+            frm = min(frm, datetime.fromtimestamp(cov[0], timezone.utc))
         if frm >= to:
             self._series[cid] = ([], [])   # all activity is older than the plan allows
+            self._covered[cid] = (frm.timestamp(), time.time())
             return
         try:
             d = await self.http.get(f"/coins/{cid}/market_chart/range", params={
@@ -96,10 +104,24 @@ class PriceService:
         except ProviderError as e:
             # Prices are best-effort: a pricing problem must never fail a scan
             log.warning("price history unavailable for %s: %s", cid, str(e)[:200])
-            self._series[cid] = ([], [])
+            self._series.setdefault(cid, ([], []))
             return
         pts = d.get("prices") or []
         self._series[cid] = ([int(p[0] / 1000) for p in pts], [Decimal(str(p[1])) for p in pts])
+        self._covered[cid] = (frm.timestamp(), time.time())
+
+    async def history_for(self, a: Asset, start: datetime) -> str | None:
+        """Make sure a price series from start to today is loaded; return its id."""
+        cid = await self.coin_id(a)
+        if cid:
+            await self._load(cid, start)
+        return cid
+
+    def price_on(self, cid: str | None, a: Asset, when: datetime) -> Decimal | None:
+        p = self._at(cid, when) if cid else None
+        if p is None and a.symbol.upper() in STABLECOINS:
+            return Decimal(1)
+        return p
 
     def _at(self, cid: str, when: datetime) -> Decimal | None:
         ts, px = self._series.get(cid, ([], []))

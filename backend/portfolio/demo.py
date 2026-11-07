@@ -101,5 +101,9 @@ def build_demo(pid: str, method: Method = Method.FIFO) -> Portfolio:
     mark_spam(p.txs)
     p.progress = {progress_key(c, a): sum(1 for t in txs if t.wallet == a and t.chain == c) for c, a in p.addresses}
     recompute(p, CURRENT)
+    from pricing.floors import Floor, collection_key
+    p.floors = {collection_key(MOTH): Floor(D(4), "SOL", "Magic Eden (example)")}
+    p.native_usd = {"SOL": CURRENT[SOL.key], "ETH": CURRENT[ETH.key]}
+    recompute(p, {**CURRENT, MOTH.key: D(4) * CURRENT[SOL.key]})
     p.updated_at = datetime.now(timezone.utc)
     return p

@@ -48,6 +48,7 @@ class Asset:
     image: str | None = field(default=None, compare=False)
     spam: bool = field(default=False, compare=False)
     compressed: bool = field(default=False, compare=False)   # Solana compressed NFT (cNFT)
+    collection: str | None = field(default=None, compare=False)  # collection address (NFTs)
 
     @property
     def key(self) -> str:

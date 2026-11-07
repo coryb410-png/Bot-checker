@@ -100,7 +100,8 @@ class EthereumScanner:
                 items = t.get("erc1155Metadata") or [{"tokenId": t.get("tokenId") or t.get("erc721TokenId"), "value": "0x1"}]
                 for it in items:
                     asset = Asset(Chain.ETHEREUM, t.get("asset") or "NFT", contract=rc["address"].lower(),
-                                  decimals=0, is_nft=True, token_id=str(int(it["tokenId"], 16)))
+                                  decimals=0, is_nft=True, token_id=str(int(it["tokenId"], 16)),
+                                  collection=rc["address"].lower())
                     legs.append(Leg(asset, sign * int(it.get("value") or "0x1", 16), counterparty=other))
 
         merged = _merge_legs(legs)
