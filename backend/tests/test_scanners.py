@@ -264,3 +264,50 @@ def test_das_marks_compressed_and_scam():
                          "content": {"metadata": {"name": "Free gift", "description": "Visit claim-sol.com now"},
                                      "files": [{"uri": "https://a/x.png", "cdn_uri": "https://cdn.helius-rpc.com/x", "mime": "image/png"}]}})
     assert m["compressed"] and m["is_nft"] and m["spam"] and m["image"] == "https://cdn.helius-rpc.com/x"
+
+
+def test_escrow_listing_then_sale_is_a_sale(monkeypatch):
+    """Magic Eden-style escrow: the NFT leaves at listing; the sale tx only pays SOL."""
+    monkeypatch.setenv("HELIUS_API_KEY", "k")
+    sc = SolanaScanner(http=object(), rpc=object())
+    sc._meta["Fox1"] = {"symbol": "FOX", "decimals": 0, "is_nft": True, "name": "Fox #1", "image": None}
+    base = {"timestamp": 1_762_000_000, "fee": 5000, "transactionError": None, "instructions": [], "source": "MAGIC_EDEN"}
+    listing = sc.normalize({**base, "signature": "list", "feePayer": ME_SOL, "type": "NFT_LISTING",
+        "nativeTransfers": [{"fromUserAccount": ME_SOL, "toUserAccount": "escrow", "amount": 2_039_280}],
+        "tokenTransfers": [{"fromUserAccount": ME_SOL, "toUserAccount": "escrow", "mint": "Fox1", "tokenAmount": 1, "tokenStandard": "NonFungible"}],
+        "events": {"nft": {"type": "NFT_LISTING", "seller": ME_SOL, "amount": 5_000_000_000, "nfts": [{"mint": "Fox1"}]}}}, ME_SOL)
+    sale = sc.normalize({**base, "signature": "sale", "feePayer": "buyer", "type": "NFT_SALE",
+        "nativeTransfers": [{"fromUserAccount": "buyer", "toUserAccount": ME_SOL, "amount": 4_800_000_000}],
+        "tokenTransfers": [{"fromUserAccount": "escrow", "toUserAccount": "buyer", "mint": "Fox1", "tokenAmount": 1, "tokenStandard": "NonFungible"}],
+        "events": {"nft": {"type": "NFT_SALE", "seller": ME_SOL, "buyer": "buyer", "amount": 5_000_000_000, "nfts": [{"mint": "Fox1"}]}}}, ME_SOL)
+    l, s_ = classify_all([listing, sale], {ME_SOL})
+    assert l.legs == [] and l.label == "Listed NFT for sale · Magic Eden"
+    assert s_.tx_type == TxType.NFT_SALE
+    assert {(x.asset.symbol, x.amount) for x in s_.legs} == {("FOX", D(-1)), ("SOL", D("4.8"))}   # net of fees
+
+
+def test_purchase_paid_through_other_accounts_uses_sale_price(monkeypatch):
+    monkeypatch.setenv("HELIUS_API_KEY", "k")
+    sc = SolanaScanner(http=object(), rpc=object())
+    tx = sc.normalize({"signature": "buy", "timestamp": 1_762_000_000, "fee": 5000, "feePayer": ME_SOL,
+        "transactionError": None, "instructions": [], "type": "NFT_SALE", "source": "TENSOR", "nativeTransfers": [],
+        "tokenTransfers": [{"fromUserAccount": "seller", "toUserAccount": ME_SOL, "mint": "Moth9", "tokenAmount": 1, "tokenStandard": "NonFungible"}],
+        "events": {"nft": {"type": "NFT_SALE", "seller": "seller", "buyer": ME_SOL, "amount": 1_500_000_000, "nfts": [{"mint": "Moth9"}]}}}, ME_SOL)
+    t = classify_all([tx], {ME_SOL})[0]
+    assert t.tx_type == TxType.NFT_PURCHASE
+    assert ("SOL", D("-1.5")) in {(x.asset.symbol, x.amount) for x in t.legs}
+
+
+def test_blur_pool_is_priced_as_eth(monkeypatch):
+    monkeypatch.setenv("ALCHEMY_API_KEY", "test")
+    sc = EthereumScanner(http=object(), nft_http=object())
+    ts = {"blockTimestamp": "2026-10-21T12:00:00.000Z"}
+    tx = sc._normalize("0xs", [
+        {"hash": "0xs", "from": ME_ETH, "to": "0xbuyer", "category": "erc721", "asset": "BANDIT",
+         "erc721TokenId": "0x7", "tokenId": "0x7", "rawContract": {"address": "0xNFT", "value": None}, "metadata": ts},
+        {"hash": "0xs", "from": "0xblur", "to": ME_ETH, "category": "erc20", "asset": "BLUR POOL",
+         "rawContract": {"address": "0x0000000000A39bb272e79075ade125fd351887Ac", "value": hex(2 * 10**17), "decimal": "0x12"}, "metadata": ts},
+    ], ME_ETH)
+    pool = next(l.asset for l in tx.legs if l.asset.symbol == "BLUR POOL")
+    assert pool.coingecko_id == "ethereum"
+    assert classify_all([tx], {ME_ETH})[0].tx_type == TxType.NFT_SALE

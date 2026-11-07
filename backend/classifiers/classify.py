@@ -58,6 +58,13 @@ def classify(tx: NormalizedTx, own_addresses: set[str]) -> NormalizedTx:
         tx.tx_type, tx.label = t, label
         return tx
 
+    if tx.hint and not (sent or recv):
+        where = f" · {tx.source.replace('_', ' ').title()}" if tx.source else ""
+        labels = {"nft_listing": "Listed NFT for sale", "nft_cancel_listing": "Cancelled NFT listing",
+                  "nft_bid": "Placed NFT bid", "nft_cancel_bid": "Cancelled NFT bid"}
+        if tx.hint in labels:
+            return done(TxType.CONTRACT_INTERACTION, labels[tx.hint] + where)
+
     if not tx.success:
         return done(TxType.NETWORK_FEE, "Failed transaction · fee only")
 

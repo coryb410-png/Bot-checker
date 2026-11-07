@@ -190,17 +190,21 @@ async def remove(pid: str):
 
 
 @app.get("/api/wallets/{pid}/transactions")
-async def transactions(pid: str, type: TxType | None = None, chain: str | None = None,
+async def transactions(pid: str, type: str | None = None, chain: str | None = None,
                        nft: bool = False, include_spam: bool = False,
                        offset: int = 0, limit: int = Query(100, le=500)):
     p = _portfolio(pid)
+    try:
+        wanted = {TxType(x.strip()) for x in type.split(",") if x.strip()} if type else set()
+    except ValueError:
+        raise HTTPException(422, "Unknown transaction type filter.")
     rows, seen = [], set()
     for t in sorted(p.txs, key=lambda t: t.timestamp, reverse=True):
         if t.tx_type == TxType.INTERNAL_TRANSFER:
             if t.tx_hash in seen:
                 continue
             seen.add(t.tx_hash)
-        if (type and t.tx_type != type) or (chain and t.chain.value != chain):
+        if (wanted and t.tx_type not in wanted) or (chain and t.chain.value != chain):
             continue
         if nft and not any(l.asset.is_nft for l in t.legs):
             continue

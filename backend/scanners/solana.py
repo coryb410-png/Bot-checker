@@ -142,6 +142,8 @@ class SolanaScanner:
             net[SOL.key] += native
         if SOL.key in net:
             assets[SOL.key] = SOL
+        # Marketplace events last, once SOL and token movements are known
+        hint = self._apply_nft_event(raw, me, net, assets, cps)
 
         legs = [Leg(assets[k], v, counterparty=cps.get(k)) for k, v in net.items() if v != 0]
         return NormalizedTx(
@@ -151,7 +153,46 @@ class SolanaScanner:
             source=raw.get("source") if raw.get("source") not in (None, "UNKNOWN", "SYSTEM_PROGRAM") else None,
             interacted_with=next((i.get("programId") for i in raw.get("instructions") or []), None),
             success=raw.get("transactionError") is None,
+            hint=hint,
         )
+
+    def _apply_nft_event(self, raw: dict, me: str, net: dict, assets: dict, cps: dict) -> str | None:
+        """Use Helius's marketplace event to fix what balance changes alone get
+        wrong. Escrow marketplaces take the NFT at listing time, so the sale
+        transaction shows only SOL arriving; the listing looks like a giveaway."""
+        ev = (raw.get("events") or {}).get("nft") or {}
+        kind = (raw.get("type") or ev.get("type") or "").upper()
+        mints = [n.get("mint") for n in ev.get("nfts") or [] if n.get("mint")]
+        if kind in ("NFT_LISTING", "NFT_CANCEL_LISTING") and mints:
+            # Moving the NFT into or out of escrow isn't a sale: it's still yours
+            for m in mints:
+                a = self._asset(m, "NonFungible")
+                net.pop(a.key, None)
+                assets.pop(a.key, None)
+            return "nft_listing" if kind == "NFT_LISTING" else "nft_cancel_listing"
+        if kind in ("NFT_BID", "NFT_GLOBAL_BID"):
+            return "nft_bid"
+        if kind in ("NFT_BID_CANCELLED", "NFT_GLOBAL_BID_CANCELLED"):
+            return "nft_cancel_bid"
+        if kind != "NFT_SALE" or not mints:
+            return None
+        price = Decimal(int(ev.get("amount") or 0)) / LAMPORTS
+        seller, buyer = ev.get("seller"), ev.get("buyer")
+        for m in mints:
+            a = self._asset(m, "NonFungible")
+            assets[a.key] = a
+            if seller == me and net.get(a.key, 0) >= 0:
+                net[a.key] = Decimal(-1)          # escrowed NFT leaves at sale time
+                cps.setdefault(a.key, buyer)
+            elif buyer == me and net.get(a.key, 0) <= 0:
+                net[a.key] = Decimal(1)
+                cps.setdefault(a.key, seller)
+        # If the payment went through other accounts, use the sale price
+        if seller == me and net.get(SOL.key, 0) <= 0 and price:
+            net[SOL.key] = price; assets[SOL.key] = SOL
+        if buyer == me and net.get(SOL.key, 0) >= 0 and price:
+            net[SOL.key] = -price; assets[SOL.key] = SOL
+        return None
 
 
 def _compressed_events(raw: dict) -> list[dict]:

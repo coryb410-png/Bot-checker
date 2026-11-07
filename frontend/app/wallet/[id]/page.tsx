@@ -9,7 +9,8 @@ import { CHAIN_LABEL, Chain, shorten } from "@/lib/address";
 import { api, Holding, Method, money, Tx, WalletStatus } from "@/lib/api";
 
 const TYPES: [string, string][] = [
-  ["", "All activity"], ["buy", "Buys"], ["sell", "Sales"], ["swap", "Swaps"],
+  ["", "All activity"], ["buy,nft_purchase", "Buys (coins + NFTs)"], ["sell,nft_sale", "Sales (coins + NFTs)"],
+  ["swap", "Swaps"],
   ["transfer_in", "Transfers in"], ["transfer_out", "Transfers out"], ["internal_transfer", "Between my wallets"],
   ["bridge", "Bridges"], ["nft_purchase", "NFT purchases"], ["nft_sale", "NFT sales"],
   ["contract_interaction", "Contract calls"], ["network_fee", "Fees only"],

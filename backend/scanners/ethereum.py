@@ -19,6 +19,11 @@ from core.models import Asset, Chain, Leg, NormalizedTx, safe_image
 from .base import Http, env
 
 ETH = Asset(Chain.ETHEREUM, "ETH", decimals=18, coingecko_id="ethereum")
+# Blur pays many NFT sales in Blur Pool, a 1:1 ETH wrapper: price it as ETH
+ETH_EQUIVALENT = {
+    "0x0000000000a39bb272e79075ade125fd351887ac": "ethereum",   # Blur Pool
+    "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "weth",       # WETH
+}
 CATEGORIES = ["external", "internal", "erc20", "erc721", "erc1155", "specialnft"]
 WEI = Decimal(10) ** 18
 
@@ -87,7 +92,9 @@ class EthereumScanner:
             elif cat == "erc20":
                 dec = int(rc.get("decimal") or "0x12", 16)
                 raw = int(rc.get("value") or "0x0", 16)
-                asset = Asset(Chain.ETHEREUM, t.get("asset") or "UNKNOWN", contract=rc["address"].lower(), decimals=dec)
+                contract = rc["address"].lower()
+                asset = Asset(Chain.ETHEREUM, t.get("asset") or "UNKNOWN", contract=contract, decimals=dec,
+                              coingecko_id=ETH_EQUIVALENT.get(contract))
                 legs.append(Leg(asset, sign * Decimal(raw) / (Decimal(10) ** dec), counterparty=other))
             else:  # NFTs
                 items = t.get("erc1155Metadata") or [{"tokenId": t.get("tokenId") or t.get("erc721TokenId"), "value": "0x1"}]

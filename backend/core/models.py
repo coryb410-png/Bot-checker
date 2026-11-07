@@ -108,6 +108,9 @@ class NormalizedTx:
     source: str | None = None         # e.g. "JUPITER", "UNISWAP", "OPENSEA"
     interacted_with: str | None = None
     success: bool = True
+    # Marketplace activity the scanner recognised that moves no balance of
+    # its own: "nft_listing", "nft_cancel_listing", "nft_bid", "nft_cancel_bid"
+    hint: str | None = None
     # Set by the classifier
     tx_type: TxType | None = None
     label: str | None = None
