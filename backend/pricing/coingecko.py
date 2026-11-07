@@ -20,8 +20,8 @@ from scanners.base import Http, ProviderError, env
 
 from .cache import Cache
 
-PLATFORM = {Chain.ETHEREUM: "ethereum", Chain.SOLANA: "solana"}
-NATIVE_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana"}
+PLATFORM = {Chain.ETHEREUM: "ethereum", Chain.SOLANA: "solana", Chain.CARDANO: "cardano"}
+NATIVE_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "ADA": "cardano"}
 log = logging.getLogger("chainscope.pricing")
 SERIES_TTL = 6 * 3600
 DIRECTORY_TTL = 86400
@@ -66,7 +66,7 @@ class PriceService:
         for c in coins or []:
             for platform, address in (c.get("platforms") or {}).items():
                 if platform in wanted and address:
-                    key = address if platform == "solana" else address.lower()
+                    key = address if platform == "solana" else address.lower()   # cardano: policy id + asset name hex
                     directory[(platform, key)] = c["id"]
         if directory:
             self._directory, self._directory_at = directory, time.time()

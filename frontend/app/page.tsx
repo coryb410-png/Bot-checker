@@ -60,7 +60,7 @@ export default function Home() {
         setBusy(false);
       }
     }
-    if (!chain) return setError("That isn't a valid Bitcoin, Ethereum or Solana address, or a name ending in .eth or .sol.");
+    if (!chain) return setError("That isn't a valid Bitcoin, Ethereum, Solana or Cardano address, or a name like name.eth, name.sol or $handle.");
     if (entries.some((x) => x.address.toLowerCase() === address.toLowerCase())) return setError("That address is already in this portfolio.");
     setEntries([...entries, { address, chain, label }]);
     setInput("");
@@ -115,14 +115,14 @@ export default function Home() {
           <label htmlFor="addr" className="eyebrow">Public wallet address</label>
           <div className="row" style={{ flexWrap: "nowrap" }}>
             <input id="addr" value={input} onChange={(e) => setInput(e.target.value)} autoComplete="off" spellCheck={false}
-              placeholder="Address, name.eth or name.sol" />
+              placeholder="Address, name.eth, name.sol or $handle" />
             <button className="btn" type="submit" disabled={busy}>{busy && typedName ? "Looking up…" : "Add"}</button>
           </div>
           <div className="row" style={{ fontSize: 13, color: "var(--muted)", justifyContent: "space-between" }}>
             <span>
               {detected ? <span className={`chip ${detected}`}>{CHAIN_LABEL[detected]}{detected === "ethereum" ? " + Robinhood Chain" : ""} detected</span>
                 : typedName ? <span className={`chip ${typedName.endsWith(".sol") ? "solana" : "ethereum"}`}>{typedName.endsWith(".sol") ? "Solana" : "ENS"} name</span>
-                : "Network is detected automatically. Names like name.eth work too."}
+                : "Network is detected automatically. Names like name.eth, name.sol and $handle work too."}
             </span>
             <span className="row" style={{ gap: 8, flexWrap: "nowrap" }}><Monkey mood="shh" size="sm" />Keep your keys secret. ChainScope only needs public addresses.</span>
           </div>

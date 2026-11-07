@@ -1,11 +1,12 @@
 // Instant client-side checks. The API re-validates with full checksums.
-export type Chain = "bitcoin" | "ethereum" | "solana" | "robinhood";
+export type Chain = "bitcoin" | "ethereum" | "solana" | "robinhood" | "cardano";
 
 export const CHAIN_LABEL: Record<Chain, string> = {
   bitcoin: "Bitcoin",
   ethereum: "Ethereum",
   solana: "Solana",
   robinhood: "Robinhood Chain",
+  cardano: "Cardano",
 };
 
 const B58 = "[1-9A-HJ-NP-Za-km-z]";
@@ -15,13 +16,16 @@ export function detectChain(raw: string): Chain | null {
   if (/^0x[0-9a-fA-F]{40}$/.test(a)) return "ethereum";
   if (/^(bc1q[02-9ac-hj-np-z]{38}|bc1q[02-9ac-hj-np-z]{58}|bc1p[02-9ac-hj-np-z]{58})$/i.test(a)) return "bitcoin";
   if (new RegExp(`^[13]${B58}{25,34}$`).test(a)) return "bitcoin";
+  if (/^(addr1|stake1)[02-9ac-hj-np-z]{50,}$/i.test(a)) return "cardano";
+  if (new RegExp(`^(Ae2${B58}{52,62}|DdzFF${B58}{90,125})$`).test(a)) return "cardano";   // legacy Byron
   if (new RegExp(`^${B58}{32,44}$`).test(a)) return "solana";
   return null;
 }
 
-// name.eth (ENS) or name.sol (Solana Name Service)
+// name.eth (ENS), name.sol (Solana Name Service) or $handle (ADA Handle)
 export function isName(raw: string): boolean {
-  return /^[^\s/\\]{1,250}\.(eth|sol)$/i.test(raw.trim());
+  const t = raw.trim();
+  return /^[^\s/\\]{1,250}\.(eth|sol)$/i.test(t) || /^\$[a-z0-9_.-]{1,15}$/i.test(t);
 }
 
 export function looksLikeSecret(raw: string): boolean {

@@ -153,3 +153,11 @@ but tax treatment varies by country.
 - Prices are cached in a shared Render Key Value store (`CACHE_URL`): coin histories for 6 hours, the coin directory for 24 hours and current prices for 2 minutes. The cache is shared by every scan and survives the server sleeping. Without it, everything still works, just slower.
 - Results appear as soon as the wallet has been read. Dollar values, profit/loss and NFT floors fill in afterwards.
 - Independent lookups run side by side: Ethereum sent/received transfers, owned-NFT checks across wallets, and price history alongside NFT lookups.
+
+## Cardano
+
+- Enter any Cardano address (`addr1…`, a `stake1…` stake address, a legacy Byron address) or an ADA Handle (`$name`). The whole wallet is scanned: every address under the same stake key.
+- Data comes from [Koios](https://api.koios.rest), which needs no key. Set `KOIOS_API_KEY` (free account) to raise the daily limit from 5,000 to 50,000 requests.
+- ADA, native tokens (priced through CoinGecko where listed) and NFTs (CIP-25 and CIP-68 names and images) are all covered.
+- Staking rewards are shown as income when withdrawn, valued at the ADA price on that day.
+- Cardano NFT floor prices aren't included yet.

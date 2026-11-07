@@ -65,6 +65,9 @@ def classify(tx: NormalizedTx, own_addresses: set[str]) -> NormalizedTx:
         if tx.hint in labels:
             return done(TxType.CONTRACT_INTERACTION, labels[tx.hint] + where)
 
+    if tx.hint == "staking_reward" and recv and not sent:
+        return done(TxType.TRANSFER_IN, f"Staking reward · {_fmt(recv)}")
+
     if not tx.success:
         return done(TxType.NETWORK_FEE, "Failed transaction · fee only")
 

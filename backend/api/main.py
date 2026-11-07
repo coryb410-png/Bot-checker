@@ -395,5 +395,6 @@ def _tx_json(t, realized: dict):
             "ethereum": f"https://etherscan.io/tx/{t.tx_hash}",
             "solana": f"https://solscan.io/tx/{t.tx_hash}",
             "robinhood": f"https://robinhoodchain.blockscout.com/tx/{t.tx_hash}",
+            "cardano": f"https://cardanoscan.io/transaction/{t.tx_hash.split('#')[0]}",
         }[t.chain.value],
     }

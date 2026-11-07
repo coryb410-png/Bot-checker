@@ -1,4 +1,4 @@
-"""Address detection and validation for Bitcoin, Ethereum and Solana.
+"""Address detection and validation for Bitcoin, Ethereum, Solana and Cardano.
 
 Validation is structural (checksums where the format has one), done before any
 API call so typos never cost a provider request.
@@ -75,6 +75,30 @@ def is_bitcoin(addr: str) -> bool:
     return False
 
 
+def is_cardano(addr: str) -> bool:
+    """Shelley addresses (addr1…, stake1…) are bech32 without the 90-character
+    cap; legacy Byron addresses (Ae2…, DdzFF…) are long base58 strings."""
+    a = addr.strip()
+    low = a.lower()
+    if low.startswith(("addr1", "stake1")):
+        if a != low and a != a.upper():
+            return False
+        pos = low.rfind("1")
+        hrp, data = low[:pos], low[pos + 1:]
+        if hrp not in ("addr", "stake") or len(data) < 50 or any(c not in BECH32_CHARSET for c in data):
+            return False
+        values = [ord(c) >> 5 for c in hrp] + [0] + [ord(c) & 31 for c in hrp]
+        values += [BECH32_CHARSET.find(c) for c in data]
+        return _bech32_polymod(values) == BECH32_CONST
+    if (a.startswith("Ae2") and 55 <= len(a) <= 65) or (a.startswith("DdzFF") and 95 <= len(a) <= 130):
+        try:
+            b58decode(a)
+            return True
+        except InvalidAddress:
+            return False
+    return False
+
+
 _ETH_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
 
@@ -99,9 +123,11 @@ def detect_chain(addr: str) -> Chain:
         return Chain.ETHEREUM
     if is_bitcoin(addr):
         return Chain.BITCOIN
+    if is_cardano(addr):
+        return Chain.CARDANO
     if is_solana(addr):
         return Chain.SOLANA
-    raise InvalidAddress("Not a valid Bitcoin, Ethereum or Solana address")
+    raise InvalidAddress("Not a valid Bitcoin, Ethereum, Solana or Cardano address")
 
 
 def normalize(addr: str, chain: Chain) -> str:
@@ -109,6 +135,8 @@ def normalize(addr: str, chain: Chain) -> str:
     if chain == Chain.ETHEREUM:
         return addr.lower()
     if chain == Chain.BITCOIN and addr.lower().startswith("bc1"):
+        return addr.lower()
+    if chain == Chain.CARDANO and addr.lower().startswith(("addr1", "stake1")):
         return addr.lower()
     return addr  # base58 is case-sensitive
 

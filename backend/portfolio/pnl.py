@@ -234,6 +234,8 @@ def compute_pnl(
                 cost = manual_costs.get(tx.tx_hash)
                 if cost is None and _stable(leg.asset) and leg.usd_value is not None:
                     cost = abs(leg.usd_value)   # a dollar is a dollar
+                if cost is None and tx.hint == "staking_reward" and leg.usd_value is not None:
+                    cost = abs(leg.usd_value)   # income: worth its market value when received
                 unit = (cost / leg.amount) if cost is not None else None
                 pools[leg.asset.key].add(Lot(leg.amount, unit, tx.timestamp, tx.tx_hash))
 

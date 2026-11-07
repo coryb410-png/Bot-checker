@@ -18,6 +18,7 @@
   --eth: #5b5fc7;
   --sol: #0f9479;
   --hood: #3a9b0f;
+  --ada: #1f4fd1;
   --display: "Rubik", "Arial Rounded MT Bold", "Helvetica Neue", Arial, sans-serif;
   --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -26,13 +27,13 @@
   :root:not([data-theme="light"]) {
     --bg: #170f11; --surface: #221719; --sunk: #2c1e21; --ink: #f4ecec; --muted: #a8979a;
     --line: #3a2a2d; --brand: #b02535; --on-brand: #ffffff; --accent: #ef5a67; --accent-ink: #170f11; --gain: #45c48a; --loss: #f0954a;
-    --warn: #e0a84a; --btc: #f2a347; --eth: #9a9dff; --sol: #3fd1b0; --hood: #8be04e; color-scheme: dark;
+    --warn: #e0a84a; --btc: #f2a347; --eth: #9a9dff; --sol: #3fd1b0; --hood: #8be04e; --ada: #7c9bff; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #170f11; --surface: #221719; --sunk: #2c1e21; --ink: #f4ecec; --muted: #a8979a;
   --line: #3a2a2d; --brand: #b02535; --on-brand: #ffffff; --accent: #ef5a67; --accent-ink: #170f11; --gain: #45c48a; --loss: #f0954a;
-  --warn: #e0a84a; --btc: #f2a347; --eth: #9a9dff; --sol: #3fd1b0; --hood: #8be04e; color-scheme: dark;
+  --warn: #e0a84a; --btc: #f2a347; --eth: #9a9dff; --sol: #3fd1b0; --hood: #8be04e; --ada: #7c9bff; color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -57,7 +58,7 @@ input, select { font: 15px var(--mono); color: var(--ink); background: var(--sur
 .chip { display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1 var(--mono); letter-spacing: 0.06em;
   text-transform: uppercase; padding: 5px 8px; border-radius: 999px; background: var(--sunk); color: var(--muted); }
 .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.chip.bitcoin { color: var(--btc); } .chip.ethereum { color: var(--eth); } .chip.solana { color: var(--sol); } .chip.robinhood { color: var(--hood); }
+.chip.bitcoin { color: var(--btc); } .chip.ethereum { color: var(--eth); } .chip.solana { color: var(--sol); } .chip.robinhood { color: var(--hood); } .chip.cardano { color: var(--ada); }
 .gain { color: var(--gain); } .loss { color: var(--loss); } .warn { color: var(--warn); }
 .err { color: var(--loss); font-size: 14px; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }

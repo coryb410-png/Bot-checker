@@ -4,6 +4,7 @@
               through your Alchemy endpoint (no extra service).
   name.sol  → Solana address, via the Bonfida SNS resolver API
               (configurable with SNS_RESOLVER_URL).
+  $name     → Cardano address holding that ADA Handle, via Koios.
 
 Not covered yet: ENS names that resolve off-chain (e.g. cb.id, many
 subnames on L2s) and full ENSIP-15 normalization of emoji names.
@@ -24,6 +25,7 @@ SEL_ADDR = "3b3b57de"       # addr(bytes32)
 ZERO = "0x" + "0" * 40
 
 NAME_RE = re.compile(r"^[^\s/\\]{1,250}\.(eth|sol)$", re.IGNORECASE)
+HANDLE_RE = re.compile(r"^\$[a-z0-9_.\-]{1,15}$", re.IGNORECASE)   # ADA Handle
 
 
 class NameNotFound(ValueError):
@@ -31,7 +33,7 @@ class NameNotFound(ValueError):
 
 
 def is_name(text: str) -> bool:
-    return bool(NAME_RE.match(text.strip()))
+    return bool(NAME_RE.match(text.strip()) or HANDLE_RE.match(text.strip()))
 
 
 def namehash(name: str) -> bytes:
@@ -62,7 +64,13 @@ class NameResolver:
     async def resolve(self, name: str) -> tuple[Chain, str]:
         name = name.strip().lower()
         if not is_name(name):
-            raise NameNotFound("Enter a name ending in .eth or .sol")
+            raise NameNotFound("Enter a name ending in .eth or .sol, or a $handle")
+        if name.startswith("$"):
+            from scanners.cardano import CardanoScanner
+            try:
+                return Chain.CARDANO, await CardanoScanner().resolve_handle(name)
+            except LookupError:
+                raise NameNotFound(f"No ADA Handle {name} found.")
         if name.endswith(".eth"):
             return Chain.ETHEREUM, await self._ens(name)
         return Chain.SOLANA, await self._sol(name)
