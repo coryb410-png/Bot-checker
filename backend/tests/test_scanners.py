@@ -130,3 +130,30 @@ def test_pricing_respects_free_history_and_never_fails(monkeypatch):
     assert frm >= (now - timedelta(days=365)).timestamp()  # clamped to the free window
     assert new.legs[0].usd_value == D(5000) and old.legs[0].usd_value is None
     assert asyncio.run(ps.current([eth])) == {}          # current-price outage is non-fatal
+
+
+def test_coin_directory_replaces_per_token_lookups(monkeypatch):
+    import asyncio
+    from core.models import Asset, Chain
+    from pricing.coingecko import PriceService
+
+    calls = []
+
+    class FakeHttp:
+        async def get(self, url, params=None):
+            calls.append(url)
+            if url == "/coins/list":
+                return [{"id": "pepe", "platforms": {"ethereum": "0xABC"}},
+                        {"id": "bonk", "platforms": {"solana": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"}}]
+            raise AssertionError(f"unexpected call {url}")
+
+    monkeypatch.setenv("COINGECKO_PLAN", "demo")
+    ps = PriceService(http=FakeHttp())
+    asyncio.run(ps._load_directory())
+    pepe = Asset(Chain.ETHEREUM, "PEPE", contract="0xabc")
+    bonk = Asset(Chain.SOLANA, "BONK", contract="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263")
+    junk = Asset(Chain.ETHEREUM, "JUNK", contract="0xdead")
+    scam = Asset(Chain.ETHEREUM, "Visit claim.xyz", contract="0xbeef")
+    ids = [asyncio.run(ps.coin_id(a)) for a in (pepe, bonk, junk, scam)]
+    assert ids == ["pepe", "bonk", None, None]
+    assert calls == ["/coins/list"]          # one call total, no per-token lookups

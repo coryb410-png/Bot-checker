@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import bisect
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from classifiers.classify import STABLECOINS
+from classifiers.spam import looks_like_scam
 from core.models import Asset, Chain, NormalizedTx
 from scanners.base import Http, ProviderError, env
 
@@ -27,20 +29,49 @@ class PriceService:
         key = env("COINGECKO_API_KEY", "")
         base = "https://pro-api.coingecko.com/api/v3" if pro else "https://api.coingecko.com/api/v3"
         header = {"x-cg-pro-api-key" if pro else "x-cg-demo-api-key": key} if key else {}
-        self.http = http or Http(base, rate_per_sec=0.4 if not pro else 8, headers=header)
+        self.http = http or Http(base, rate_per_sec=0.45 if not pro else 8, headers=header)
         # Free (demo/public) access only serves the last 365 days of history.
         # Older transactions keep an unknown USD value instead of failing the scan.
         self.history_days: int | None = None if pro else 364
         self._ids: dict[str, str | None] = {}
+        # contract address -> CoinGecko id, for every listed coin, from ONE call
+        self._directory: dict[tuple[str, str], str] = {}
+        self._directory_at = 0.0
         self._series: dict[str, tuple[list[int], list[Decimal]]] = {}
+
+    async def _load_directory(self) -> None:
+        """Download CoinGecko's whole coin list with contract addresses once a
+        day. Replaces one lookup call per token with a single call."""
+        if self._directory and time.time() - self._directory_at < 86400:
+            return
+        try:
+            coins = await self.http.get("/coins/list", params={"include_platform": "true"})
+        except ProviderError as e:
+            log.warning("coin directory unavailable, falling back to per-token lookups: %s", str(e)[:200])
+            return
+        wanted = set(PLATFORM.values())
+        directory = {}
+        for c in coins or []:
+            for platform, address in (c.get("platforms") or {}).items():
+                if platform in wanted and address:
+                    key = address if platform == "solana" else address.lower()
+                    directory[(platform, key)] = c["id"]
+        if directory:
+            self._directory, self._directory_at = directory, time.time()
 
     async def coin_id(self, a: Asset) -> str | None:
         if a.coingecko_id:
             return a.coingecko_id
         if a.contract is None:
             return NATIVE_IDS.get(a.symbol.upper())
-        if a.is_nft or a.chain not in PLATFORM:
+        if a.is_nft or a.chain not in PLATFORM or a.spam:
             return None
+        if looks_like_scam(a.symbol) or looks_like_scam(a.name):
+            return None   # junk airdrops are never priced
+        if self._directory:
+            platform = PLATFORM[a.chain]
+            key = a.contract if a.chain == Chain.SOLANA else a.contract.lower()
+            return self._directory.get((platform, key))   # not listed = no market price
         if a.key not in self._ids:
             try:
                 d = await self.http.get(f"/coins/{PLATFORM[a.chain]}/contract/{a.contract}")
@@ -85,6 +116,8 @@ class PriceService:
         start = min(t.timestamp for t in txs)
         end = max(t.timestamp for t in txs)
         assets = {l.asset for t in txs for l in t.legs} | {t.fee_asset for t in txs if t.fee_asset}
+        if any(a.contract and not a.is_nft for a in assets):
+            await self._load_directory()
         for a in assets:
             cid = await self.coin_id(a)
             if cid:
@@ -108,6 +141,8 @@ class PriceService:
         return p
 
     async def current(self, assets: list[Asset]) -> dict[str, Decimal]:
+        if any(a.contract and not a.is_nft for a in assets):
+            await self._load_directory()
         ids = {a.key: await self.coin_id(a) for a in assets}
         wanted = sorted({i for i in ids.values() if i})
         out: dict[str, Decimal] = {}
