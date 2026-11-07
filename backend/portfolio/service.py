@@ -133,11 +133,15 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
             if batch:
                 p.cursors[progress_key(c, a)] = batch[0].tx_hash
 
-        p.status = "pricing"
-        await prices.price_transactions(new)
+        # Show what was found right away; dollar values fill in afterwards
         p.txs = p.txs + new
+        recompute(p)
+        p.status = "pricing"
+
+        # Prices (CoinGecko) and owned-NFT lookups (Helius/Alchemy) use
+        # different services, so run them side by side
+        await asyncio.gather(prices.price_transactions(new), _find_untracked_nfts(p))
         mark_spam(p.txs)
-        await _find_untracked_nfts(p)
         current = await prices.current(_held_assets(p) + [NATIVE_SOL, NATIVE_ETH])
         recompute(p, current)
 
@@ -174,17 +178,19 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
             if l.asset.is_nft:
                 held_keys.add(l.asset.key)
     extra, owned_by_key = [], {}
-    for chain, addr in p.addresses:
-        if chain not in (Chain.SOLANA, Chain.ETHEREUM):
-            continue
+
+    async def owned_by(chain: Chain, addr: str) -> list[Asset]:
         sc = _scanner(chain)
         if not hasattr(sc, "held_nfts"):
-            continue
+            return []
         try:
-            owned = await sc.held_nfts(addr)
+            return await sc.held_nfts(addr)
         except Exception as e:
             p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
-            continue
+            return []
+
+    wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM)]
+    for owned in await asyncio.gather(*(owned_by(c, a) for c, a in wallets)):   # all wallets at once
         owned_by_key.update({a.key: a for a in owned})
         extra += [a for a in owned if a.key not in held_keys and not a.spam]
     # Fill in photos/names the history lookup couldn't get for NFTs still owned

@@ -18,13 +18,18 @@ from classifiers.spam import looks_like_scam
 from core.models import Asset, Chain, NormalizedTx
 from scanners.base import Http, ProviderError, env
 
+from .cache import Cache
+
 PLATFORM = {Chain.ETHEREUM: "ethereum", Chain.SOLANA: "solana"}
 NATIVE_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana"}
 log = logging.getLogger("chainscope.pricing")
+SERIES_TTL = 6 * 3600
+DIRECTORY_TTL = 86400
+CURRENT_TTL = 120
 
 
 class PriceService:
-    def __init__(self, http: Http | None = None):
+    def __init__(self, http: Http | None = None, cache: Cache | None = None):
         pro = env("COINGECKO_PLAN", "demo") == "pro"
         key = env("COINGECKO_API_KEY", "")
         base = "https://pro-api.coingecko.com/api/v3" if pro else "https://api.coingecko.com/api/v3"
@@ -39,11 +44,17 @@ class PriceService:
         self._directory_at = 0.0
         self._series: dict[str, tuple[list[int], list[Decimal]]] = {}
         self._covered: dict[str, tuple[float, float]] = {}   # cid -> (from ts, fetched at)
+        self.cache = cache or Cache()   # shared across restarts and scans
 
     async def _load_directory(self) -> None:
         """Download CoinGecko's whole coin list with contract addresses once a
         day. Replaces one lookup call per token with a single call."""
-        if self._directory and time.time() - self._directory_at < 86400:
+        if self._directory and time.time() - self._directory_at < DIRECTORY_TTL:
+            return
+        cached = await self.cache.get("cg:dir:v1")
+        if cached and time.time() - cached["at"] < DIRECTORY_TTL:
+            self._directory = {(pf, k): cid for pf, k, cid in cached["rows"]}
+            self._directory_at = cached["at"]
             return
         try:
             coins = await self.http.get("/coins/list", params={"include_platform": "true"})
@@ -59,6 +70,9 @@ class PriceService:
                     directory[(platform, key)] = c["id"]
         if directory:
             self._directory, self._directory_at = directory, time.time()
+            await self.cache.set("cg:dir:v1", {"at": self._directory_at,
+                                               "rows": [[pf, k, cid] for (pf, k), cid in directory.items()]},
+                                 DIRECTORY_TTL)
 
     async def coin_id(self, a: Asset) -> str | None:
         if a.coingecko_id:
@@ -90,7 +104,12 @@ class PriceService:
         if self.history_days is not None:
             frm = max(frm, now - timedelta(days=self.history_days))
         cov = self._covered.get(cid)
-        if cov and cov[0] <= frm.timestamp() + 86400 and time.time() - cov[1] < 6 * 3600:
+        if cov and cov[0] <= frm.timestamp() + 86400 and time.time() - cov[1] < SERIES_TTL:
+            return
+        cached = await self.cache.get(f"cg:series:v1:{cid}")
+        if cached and cached["from"] <= frm.timestamp() + 86400 and time.time() - cached["at"] < SERIES_TTL:
+            self._series[cid] = (cached["ts"], [Decimal(x) for x in cached["px"]])
+            self._covered[cid] = (cached["from"], cached["at"])
             return
         if cov:
             frm = min(frm, datetime.fromtimestamp(cov[0], timezone.utc))
@@ -109,6 +128,9 @@ class PriceService:
         pts = d.get("prices") or []
         self._series[cid] = ([int(p[0] / 1000) for p in pts], [Decimal(str(p[1])) for p in pts])
         self._covered[cid] = (frm.timestamp(), time.time())
+        ts, px = self._series[cid]
+        await self.cache.set(f"cg:series:v1:{cid}", {"from": frm.timestamp(), "at": time.time(), "ts": ts,
+                                                     "px": [str(x) for x in px]}, SERIES_TTL)
 
     async def history_for(self, a: Asset, start: datetime) -> str | None:
         """Make sure a price series from start to today is loaded; return its id."""
@@ -168,6 +190,14 @@ class PriceService:
         ids = {a.key: await self.coin_id(a) for a in assets}
         wanted = sorted({i for i in ids.values() if i})
         out: dict[str, Decimal] = {}
+        known: dict[str, Decimal] = {}
+        for cid, v in zip(wanted, await self.cache.mget([f"cg:now:v1:{c}" for c in wanted])):
+            if v is not None:
+                known[cid] = Decimal(v)
+        for key, cid in ids.items():
+            if cid in known:
+                out[key] = known[cid]
+        wanted = [c for c in wanted if c not in known]
         for i in range(0, len(wanted), 200):
             try:
                 d = await self.http.get("/simple/price", params={"ids": ",".join(wanted[i:i + 200]), "vs_currencies": "usd"})
@@ -177,6 +207,9 @@ class PriceService:
             for key, cid in ids.items():
                 if cid in d:
                     out[key] = Decimal(str(d[cid]["usd"]))
+            for cid in wanted[i:i + 200]:
+                if cid in d and "usd" in d[cid]:
+                    await self.cache.set(f"cg:now:v1:{cid}", str(d[cid]["usd"]), CURRENT_TTL)
         return out
 
 

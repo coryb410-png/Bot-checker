@@ -8,6 +8,7 @@ Transfers API; add an Etherscan-style tx list later if you need those.
 """
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
@@ -64,8 +65,9 @@ class EthereumScanner:
 
     async def scan(self, address: str, since_cursor: str | None = None) -> AsyncIterator[NormalizedTx]:
         address = address.lower()
-        transfers = (await self._transfers("fromAddress", address, since_cursor)
-                     + await self._transfers("toAddress", address, since_cursor))
+        sent, received = await asyncio.gather(self._transfers("fromAddress", address, since_cursor),
+                                              self._transfers("toAddress", address, since_cursor))
+        transfers = sent + received
         by_hash: dict[str, list[dict]] = defaultdict(list)
         seen = set()
         for t in transfers:

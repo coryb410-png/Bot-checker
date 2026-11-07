@@ -62,7 +62,9 @@ export default function WalletPage({ params }: { params: { id: string } }) {
     return () => io.disconnect();
   }, [loadMore, txs.length, total]);
 
-  // Poll while the scan runs
+  // Poll while the scan runs. Transactions and NFTs are shown as soon as the
+  // wallet has been read; dollar values and floors fill in when they arrive.
+  const loadedAt = useRef<string | null>(null);
   useEffect(() => {
     let stop = false;
     async function tick() {
@@ -70,8 +72,9 @@ export default function WalletPage({ params }: { params: { id: string } }) {
         const s = await api.status(id);
         if (stop) return;
         setSt(s);
-        if (s.status === "ready") await loadData();
-        else if (s.status !== "error") setTimeout(tick, 2000);
+        const hasData = s.status === "pricing" || s.status === "valuing" || s.status === "ready";
+        if (hasData && loadedAt.current !== s.status) { loadedAt.current = s.status; await loadData(); }
+        if (s.status !== "ready" && s.status !== "error") setTimeout(tick, 2000);
       } catch (e) { setError((e as Error).message); }
     }
     tick();
@@ -103,6 +106,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
 
   const sm = st.summary;
   const scanning = st.status !== "ready" && st.status !== "error";
+  const filling = scanning && !!sm && (st.status === "pricing" || st.status === "valuing");
 
   return (
     <>
@@ -135,7 +139,16 @@ export default function WalletPage({ params }: { params: { id: string } }) {
         ))}
       </section>
 
-      {scanning && (
+      {filling && (
+        <div className="panel row" role="status" style={{ gap: 12, flexWrap: "nowrap", background: "var(--sunk)" }}>
+          <Monkey mood="cash" size="sm" />
+          <span>
+            <strong>{st.status === "valuing" ? "Checking NFT floor prices…" : "Adding up dollar values…"}</strong>{" "}
+            <span style={{ color: "var(--muted)" }}>Your activity is below. Totals and profit/loss update by themselves in a moment.</span>
+          </span>
+        </div>
+      )}
+      {scanning && !filling && (
         <div className="panel scanning" role="status">
           <Say mood={st.status === "pricing" || st.status === "valuing" ? "cash" : "shh"} size="lg">
             <strong>{st.status === "valuing" ? "Checking NFT floor prices…" : st.status === "pricing" ? "Adding up the money…" : "Reading the blockchain quietly…"}</strong>
@@ -172,7 +185,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
             <div className="panel stat"><span className="eyebrow">Fees paid</span><div className="v">{money(sm.fees_paid)}</div><div className="s">{sm.assets_sold} assets sold</div></div>
           </section>
 
-          <ValueChart id={id} refreshKey={st.updated_at} />
+          {st.status === "ready" && <ValueChart id={id} refreshKey={st.updated_at} />}
 
           <Highlights h={sm.highlights} />
 

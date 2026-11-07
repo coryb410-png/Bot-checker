@@ -147,3 +147,9 @@ but tax treatment varies by country.
 - **Floor prices:** Solana NFTs are valued at their Magic Eden collection floor and Ethereum NFTs at their OpenSea (then LooksRare) floor via Alchemy. These floors count toward the portfolio total and unrealized P&L. Collections with no floor, such as cNFTs Magic Eden doesn't list, stay unvalued.
 - **NFT gallery:** held NFTs are grouped by collection, showing the floor, the count and the total value of each group.
 - **Portfolio value chart:** a daily value of coins and tokens over 30 days, 90 days or 1 year, built by replaying history at each day's price. The free CoinGecko plan limits it to the last 365 days.
+
+## Speed
+
+- Prices are cached in a shared Render Key Value store (`CACHE_URL`): coin histories for 6 hours, the coin directory for 24 hours and current prices for 2 minutes. The cache is shared by every scan and survives the server sleeping. Without it, everything still works, just slower.
+- Results appear as soon as the wallet has been read. Dollar values, profit/loss and NFT floors fill in afterwards.
+- Independent lookups run side by side: Ethereum sent/received transfers, owned-NFT checks across wallets, and price history alongside NFT lookups.
