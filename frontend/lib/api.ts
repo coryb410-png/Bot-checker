@@ -1,4 +1,6 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Calls go to this site's own /api/* proxy (app/api/[...path]/route.ts),
+// which forwards them to the backend.
+const BASE = "";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
