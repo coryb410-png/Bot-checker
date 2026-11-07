@@ -8,6 +8,12 @@ import { BrandMark, Monkey, Mood, Say } from "@/components/Brand";
 
 interface Entry { address: string; chain: Chain; label?: string }
 
+// The networks people can add, shown as badges at the top of the page
+const NETWORKS: [string, string, string | null][] = [
+  ["bitcoin", "Bitcoin", "BTC"], ["ethereum", "Ethereum", "ETH"], ["solana", "Solana", "SOL"],
+  ["cardano", "Cardano", "ADA"], ["robinhood", "Robinhood Chain", null],
+];
+
 export default function Home() {
   const router = useRouter();
   const [input, setInput] = useState("");
@@ -101,7 +107,12 @@ export default function Home() {
         </div>
         <section className="hero">
           <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
-            <span className="eyebrow">Wallet analytics · BTC · ETH · SOL · ADA</span>
+            <span className="eyebrow">Wallet analytics</span>
+            <ul className="nets" aria-label="Supported networks">
+              {NETWORKS.map(([key, name, ticker]) => (
+                <li key={key} className={key}><span className="dot" aria-hidden="true" /><strong>{name}</strong>{ticker && <span className="tk">{ticker}</span>}</li>
+              ))}
+            </ul>
             <h1>Your entire crypto history. One place.</h1>
             <p>Add public addresses to rebuild every purchase, sale, swap and transfer with historical USD values and profit or loss. No signatures, no keys.</p>
           </div>
