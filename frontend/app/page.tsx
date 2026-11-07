@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CHAIN_LABEL, Chain, detectChain, isName, looksLikeSecret, shorten } from "@/lib/address";
 import { api, Method } from "@/lib/api";
 import { BrandMark, Monkey, Mood, Say } from "@/components/Brand";
@@ -17,6 +17,23 @@ export default function Home() {
   const [errorMood, setErrorMood] = useState<Mood>("mad");
   const setError = (text: string | null, mood: Mood = "mad") => { setErrorText(text); setErrorMood(mood); };
   const [busy, setBusy] = useState(false);
+
+  // Prefill from a link like /?addresses=bc1q…,0x…,So1… (used by the MADBOY preview page).
+  // Only valid public addresses are accepted; anything else in the link is ignored.
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("addresses");
+    if (!raw) return;
+    const seen = new Set<string>();
+    const found: Entry[] = [];
+    for (const part of raw.split(",").slice(0, 20)) {
+      const a = part.trim();
+      const chain = detectChain(a);
+      if (!chain || looksLikeSecret(a) || seen.has(a.toLowerCase())) continue;
+      seen.add(a.toLowerCase());
+      found.push({ address: a, chain });
+    }
+    if (found.length) setEntries(found);
+  }, []);
 
   const detected = input.trim() ? detectChain(input) : null;
   const typedName = !detected && isName(input) ? input.trim().toLowerCase() : null;
