@@ -101,7 +101,7 @@ export default function Home() {
         </div>
         <section className="hero">
           <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
-            <span className="eyebrow">Wallet analytics · BTC · ETH · SOL</span>
+            <span className="eyebrow">Wallet analytics · BTC · ETH · SOL · ADA</span>
             <h1>Your entire crypto history. One place.</h1>
             <p>Add public addresses to rebuild every purchase, sale, swap and transfer with historical USD values and profit or loss. No signatures, no keys.</p>
           </div>
@@ -121,7 +121,10 @@ export default function Home() {
           <div className="row" style={{ fontSize: 13, color: "var(--muted)", justifyContent: "space-between" }}>
             <span>
               {detected ? <span className={`chip ${detected}`}>{CHAIN_LABEL[detected]}{detected === "ethereum" ? " + Robinhood Chain" : ""} detected</span>
-                : typedName ? <span className={`chip ${typedName.endsWith(".sol") ? "solana" : "ethereum"}`}>{typedName.endsWith(".sol") ? "Solana" : "ENS"} name</span>
+                : typedName ? (() => {
+                    const kind = typedName.startsWith("$") ? ["cardano", "ADA Handle"] : typedName.endsWith(".sol") ? ["solana", "Solana name"] : ["ethereum", "ENS name"];
+                    return <span className={`chip ${kind[0]}`}>{kind[1]}</span>;
+                  })()
                 : "Network is detected automatically. Names like name.eth, name.sol and $handle work too."}
             </span>
             <span className="row" style={{ gap: 8, flexWrap: "nowrap" }}><Monkey mood="shh" size="sm" />Keep your keys secret. ChainScope only needs public addresses.</span>
