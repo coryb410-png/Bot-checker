@@ -60,7 +60,8 @@ _hits: dict[str, deque] = defaultdict(deque)
 
 
 def _limit(req: Request, bucket: str = "scan", per_hour: int | None = None) -> None:
-    ip = req.headers.get("x-forwarded-for", req.client.host if req.client else "?").split(",")[0].strip()
+    ip = (req.headers.get("x-chainscope-client")
+          or req.headers.get("x-forwarded-for", req.client.host if req.client else "?")).split(",")[0].strip()
     q, now = _hits[f"{bucket}:{ip}"], time.time()
     while q and now - q[0] > 3600:
         q.popleft()
