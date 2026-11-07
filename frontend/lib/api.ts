@@ -89,6 +89,7 @@ export interface Tx {
 export interface Holding {
   asset: string; chain: string; key: string; quantity: string;
   nft: boolean; name: string | null; image: string | null; spam: boolean; compressed?: boolean;
+  untracked?: boolean;   // owned, but its arrival wasn't found in the history (e.g. Metaplex Core NFTs)
   price: string | null; value: string | null;
   cost_basis: string | null; unrealized_pnl: string | null; unknown_basis_qty: string;
 }

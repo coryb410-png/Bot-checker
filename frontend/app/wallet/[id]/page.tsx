@@ -198,6 +198,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
                         {h.nft ? <NftThumb src={h.image} name={h.name ?? h.asset} spam={h.spam} size={36} /> : <span className={`chip ${h.chain}`}>{h.chain.slice(0, 3)}</span>}
                         {h.nft ? (h.name ?? h.asset) : h.asset}
                         {h.compressed && <span className="chip plain">cNFT</span>}
+                        {h.untracked && <span className="chip plain" title="You own this, but how it arrived isn't in the scanned history, so it has no purchase price">Not in history</span>}
                       </span></td>
                       <td className="r">{Number(h.quantity).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
                       <td className="r">{money(h.price)}</td>

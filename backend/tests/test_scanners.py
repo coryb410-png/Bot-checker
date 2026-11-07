@@ -325,3 +325,44 @@ def test_programs_recorded_and_unknown_marketplace_named(monkeypatch):
                           "innerInstructions": [{"programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}]}]}, ME_SOL)
     assert tx.programs == ["SoLonMarket1111111111111111111111111111111"]
     assert tx.source == "Solonchain"
+
+
+def test_held_nfts_include_core_and_skip_collections(monkeypatch):
+    import asyncio
+    monkeypatch.setenv("HELIUS_API_KEY", "k")
+
+    class FakeRpc:
+        async def post(self, url, params=None, json=None):
+            assert json["method"] == "getAssetsByOwner" and params == {"api-key": "k"}
+            return {"result": {"items": [
+                {"id": "core1", "interface": "MplCoreAsset",
+                 "content": {"metadata": {"name": "Trump Sol Club #12", "symbol": "TSC"},
+                             "links": {"image": "https://arweave.net/t.png"}}},
+                {"id": "coll", "interface": "MplCoreCollection", "content": {"metadata": {"name": "BullBears"}}},
+                {"id": "bb7", "interface": "ProgrammableNFT",
+                 "content": {"metadata": {"name": "BullBears #7", "symbol": "BB"}, "links": {"image": "https://x/b.png"}}},
+                {"id": "fung", "interface": "FungibleToken", "content": {"metadata": {"name": "Coin"}}},
+            ]}}
+
+    sc = SolanaScanner(http=object(), rpc=FakeRpc())
+    held = asyncio.run(sc.held_nfts(ME_SOL))
+    assert [(a.name, a.is_nft) for a in held] == [("Trump Sol Club #12", True), ("BullBears #7", True)]
+
+
+def test_untracked_nfts_reach_holdings(monkeypatch):
+    import asyncio
+    from core.models import Asset, Chain
+    from portfolio import service
+    from portfolio.pnl import Method
+
+    core = Asset(Chain.SOLANA, "TSC", contract="core1", decimals=0, is_nft=True, token_id="core1", name="Trump Sol Club #12")
+
+    class FakeSol:
+        async def held_nfts(self, owner):
+            return [core]
+
+    import scanners.solana as solmod
+    monkeypatch.setattr(solmod, "SolanaScanner", lambda: FakeSol())
+    p = service.Store().create(["JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"], Method.FIFO)
+    asyncio.run(service._find_untracked_nfts(p))
+    assert [a.name for a in p.untracked_nfts] == ["Trump Sol Club #12"]

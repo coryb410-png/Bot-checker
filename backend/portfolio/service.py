@@ -40,6 +40,9 @@ class Portfolio:
     demo: bool = False               # example wallet with invented data
     labels: dict[str, str] = field(default_factory=dict)   # address -> name.eth / name.sol
     network_errors: dict[str, str] = field(default_factory=dict)  # "chain:address" -> message
+    # NFTs the wallet owns that its history never showed arriving (e.g. Metaplex
+    # Core NFTs, which don't move as tokens). Shown in holdings, no cost basis.
+    untracked_nfts: list = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime | None = None
 
@@ -131,6 +134,7 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
         await prices.price_transactions(new)
         p.txs = p.txs + new
         mark_spam(p.txs)
+        await _find_untracked_nfts(p)
         recompute(p, await prices.current(_held_assets(p)))
         p.status = "ready"
         p.updated_at = datetime.now(timezone.utc)
@@ -151,6 +155,27 @@ def recompute(p: Portfolio, current_prices: dict[str, Decimal] | None = None) ->
         orig.tx_type, orig.label = c.tx_type, c.label
     prev = {k: s.current_price for k, s in (p.report.assets.items() if p.report else [])}
     p.report = compute_pnl(clean, p.method, current_prices or prev, p.manual_costs)
+
+
+async def _find_untracked_nfts(p: Portfolio) -> None:
+    from scanners.solana import SolanaScanner
+    held_keys = set()
+    for t in p.txs:
+        for l in t.legs:
+            if l.asset.is_nft:
+                held_keys.add(l.asset.key)
+    extra = []
+    for chain, addr in p.addresses:
+        if chain != Chain.SOLANA:
+            continue
+        try:
+            owned = await SolanaScanner().held_nfts(addr)
+        except Exception as e:
+            p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
+            continue
+        extra += [a for a in owned if a.key not in held_keys and not a.spam]
+    # Owned NFTs whose history we did read are already counted; keep only the rest
+    p.untracked_nfts = list({a.key: a for a in extra}.values())
 
 
 def _held_assets(p: Portfolio):

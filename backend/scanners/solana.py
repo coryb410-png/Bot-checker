@@ -90,6 +90,31 @@ class SolanaScanner:
                 if a:
                     self._meta[a["id"]] = parse_das_asset(a)
 
+    async def held_nfts(self, owner: str) -> list[Asset]:
+        """Every NFT the wallet owns right now, in every format: legacy,
+        programmable, compressed and Metaplex Core. Core NFTs never appear in
+        token transfers, so this is how they get into holdings at all."""
+        out, page = [], 1
+        while page <= 20:   # up to 20,000 NFTs
+            res = await self.rpc.post("", params=self.rpc_params, json={
+                "jsonrpc": "2.0", "id": 1, "method": "getAssetsByOwner",
+                "params": {"ownerAddress": owner, "page": page, "limit": 1000,
+                           "displayOptions": {"showFungible": False, "showUnverifiedCollections": True}}})
+            if res.get("error"):
+                log.warning("Helius getAssetsByOwner error: %s", str(res["error"])[:200])
+                break
+            items = (res.get("result") or {}).get("items") or []
+            for a in items:
+                m = parse_das_asset(a)
+                if not m["is_nft"] or (a.get("burnt") is True):
+                    continue
+                self._meta[a["id"]] = m
+                out.append(self._asset(a["id"], "Compressed" if m["compressed"] else "NonFungible"))
+            if len(items) < 1000:
+                break
+            page += 1
+        return out
+
     def _asset(self, mint: str, standard: str | None) -> Asset:
         if mint == WSOL:
             return SOL   # wrapped SOL behaves as SOL for cost basis
@@ -232,7 +257,10 @@ def parse_das_asset(a: dict) -> dict:
     links = content.get("links") or {}
     files = content.get("files") or []
     compressed = bool((a.get("compression") or {}).get("compressed"))
-    is_nft = compressed or a.get("interface") in ("V1_NFT", "ProgrammableNFT", "MplCoreAsset", "LEGACY_NFT", "V2_NFT")
+    is_nft = compressed or a.get("interface") in (
+        "V1_NFT", "ProgrammableNFT", "MplCoreAsset", "MplCoreCollection", "LEGACY_NFT", "V2_NFT", "Custom")
+    if a.get("interface") == "MplCoreCollection":
+        is_nft = False   # the collection itself, not an item
     # Prefer Helius's image CDN (fast, phone-friendly), then the original link
     image_files = [f for f in files if (f.get("mime") or "").startswith("image") or f.get("cdn_uri")]
     img = next((f["cdn_uri"] for f in image_files if f.get("cdn_uri")), None) \

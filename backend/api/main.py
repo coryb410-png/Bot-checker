@@ -238,7 +238,13 @@ async def holdings(pid: str):
              "compressed": getattr(images.get(a.asset_key), "compressed", False),
              "price": usd(a.current_price), "value": usd(a.market_value),
              "cost_basis": usd(a.cost_basis), "unrealized_pnl": usd(a.unrealized),
-             "unknown_basis_qty": s(a.unknown_qty)} for a in items]
+             "unknown_basis_qty": s(a.unknown_qty)} for a in items] + [
+        # Owned NFTs the history never showed arriving (e.g. Metaplex Core)
+        {"asset": n.symbol, "chain": n.chain.value, "key": n.key, "quantity": "1", "nft": True,
+         "name": n.name, "image": n.image, "spam": False, "compressed": n.compressed,
+         "price": None, "value": None, "cost_basis": None, "unrealized_pnl": None,
+         "unknown_basis_qty": "1", "untracked": True}
+        for n in getattr(p, "untracked_nfts", [])]
 
 
 @app.get("/api/wallets/{pid}/pnl")
