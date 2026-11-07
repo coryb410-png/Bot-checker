@@ -2,6 +2,7 @@
 
 import NftThumb from "@/components/NftThumb";
 import { Monkey, moodFor } from "@/components/Brand";
+import { RangePicker } from "@/components/ValueChart";
 import { explorerUrl, FlipHighlight, Highlights as H, money, TradeHighlight } from "@/lib/api";
 
 const day = (d: string) => new Date(d).toLocaleDateString(undefined, { month: "short", day: "2-digit", year: "numeric" });
@@ -45,17 +46,31 @@ function Flip({ title, f }: { title: string; f: FlipHighlight }) {
   );
 }
 
-export default function Highlights({ h }: { h: H }) {
-  if (!h || (!h.best_trade && !h.best_flip)) return null;
+const SPAN: Record<number, string> = { 30: "in the last 30 days", 90: "in the last 90 days", 366: "in the last year", 0: "yet" };
+
+export default function Highlights({ all, byRange, range, onRange }: {
+  all: H; byRange?: Record<string, H>; range: number; onRange: (d: number) => void;
+}) {
+  // Nothing to show at any range: leave the section out entirely
+  if (!all || (!all.best_trade && !all.best_flip)) return null;
+  const h = byRange?.[range ? String(range) : "all"] ?? all;
+  const empty = !h.best_trade && !h.best_flip;
   return (
     <section style={{ display: "grid", gap: 10 }}>
-      <h2>Highlights</h2>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2 style={{ margin: 0 }}>Highlights</h2>
+        {byRange && <RangePicker range={range} onRange={onRange} />}
+      </div>
+      {empty ? (
+        <div className="panel"><Monkey mood="shh" size="xs" /> <span style={{ color: "var(--muted)" }}>No completed trades or NFT flips {SPAN[range] ?? "in this range"}. Try a longer range.</span></div>
+      ) : (
       <div className="hl-grid">
         {h.best_trade && <Trade title="Best trade" t={h.best_trade} />}
         {h.worst_trade && <Trade title="Worst trade" t={h.worst_trade} />}
         {h.best_flip && <Flip title="Best NFT flip" f={h.best_flip} />}
         {h.worst_flip && <Flip title="Worst NFT flip" f={h.worst_flip} />}
       </div>
+      )}
     </section>
   );
 }

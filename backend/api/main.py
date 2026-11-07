@@ -8,6 +8,7 @@ import asyncio
 import os
 import time
 from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -184,6 +185,7 @@ async def wallet(pid: str):
             "warnings": r.warnings[:50],
             "spam_hidden": spam_counts(p.txs),
             "highlights": _highlights_json(p),
+            "highlights_by_range": {str(d or "all"): _highlights_json(p, d) for d in HIGHLIGHT_RANGES},
         },
     }
 
@@ -346,8 +348,12 @@ def _nft_value(p) -> Decimal:
     return sum((Decimal(h["value"]) for h in _nft_holdings(p) if h["value"]), Decimal(0))
 
 
-def _highlights_json(p) -> dict:
-    h = compute_highlights(p)
+HIGHLIGHT_RANGES = (30, 90, 366, None)   # the chart's 30D / 90D / 1Y / All buttons
+
+
+def _highlights_json(p, days: int | None = None) -> dict:
+    since = datetime.now(timezone.utc) - timedelta(days=days) if days else None
+    h = compute_highlights(p, since)
     money_keys = {"realized", "proceeds", "cost"}
 
     def fmt(item):

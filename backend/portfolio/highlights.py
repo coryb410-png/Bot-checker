@@ -13,6 +13,7 @@ purchase price is left out rather than guessed.
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import datetime
 from decimal import Decimal
 
 from classifiers.spam import is_spam_tx
@@ -21,7 +22,8 @@ from core.models import TxType
 TRADE_TYPES = {TxType.SELL, TxType.SWAP}
 
 
-def compute_highlights(p) -> dict:
+def compute_highlights(p, since: datetime | None = None) -> dict:
+    """Highlights for sales on or after `since` (all time when None)."""
     r = p.report
     if not r:
         return {}
@@ -40,6 +42,8 @@ def compute_highlights(p) -> dict:
         if any(d.realized is None for d in ds):
             continue
         t = txs[h]
+        if since and t.timestamp < since:
+            continue
         trades.append({
             "tx_hash": h, "date": t.timestamp, "label": t.label, "chain": t.chain.value,
             "source": t.source, "realized": sum((d.realized for d in ds), Decimal(0)),
@@ -51,6 +55,8 @@ def compute_highlights(p) -> dict:
     for d in r.disposals:
         a = assets.get(d.asset_key)
         if not a or not a.is_nft or d.realized is None or d.cost_basis <= 0:
+            continue
+        if since and d.timestamp < since:
             continue
         t = txs.get(d.tx_hash)
         held = (d.timestamp - d.acquired_at).days if d.acquired_at else None

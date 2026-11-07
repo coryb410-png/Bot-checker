@@ -54,6 +54,7 @@ export interface Summary {
   warnings: string[];
   spam_hidden: { transactions?: number; assets?: number };
   highlights: Highlights;
+  highlights_by_range?: Record<string, Highlights>;   // keys "30", "90", "366", "all"
 }
 export interface TradeHighlight {
   tx_hash: string; date: string; label: string; chain: string; source: string | null; realized: string; proceeds: string;

@@ -193,3 +193,21 @@ def test_one_network_failing_does_not_sink_the_scan(monkeypatch):
     asyncio.run(service.run_scan(p, NoPrices()))
     assert p.status == "ready" and len(p.txs) == 1
     assert list(p.network_errors) == ["robinhood:0xd8da6bf26964af9d7eed9e03e53415d37aa96045"]
+
+
+def test_highlights_follow_the_date_range():
+    from datetime import datetime, timedelta, timezone
+    from portfolio.demo import build_demo
+    from portfolio.highlights import compute_highlights
+    p = build_demo("demo-r")
+    all_time = compute_highlights(p)
+    now = datetime.now(timezone.utc)
+    for days in (30, 90, 366):
+        since = now - timedelta(days=days)
+        h = compute_highlights(p, since)
+        for k in ("best_trade", "worst_trade", "best_flip", "worst_flip"):
+            if h[k]:
+                assert h[k]["date"] >= since
+        assert h["trade_count"] <= all_time["trade_count"] and h["flip_count"] <= all_time["flip_count"]
+    far_future = compute_highlights(p, now + timedelta(days=1))
+    assert far_future["best_trade"] is None and far_future["trade_count"] == 0

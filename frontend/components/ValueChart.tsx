@@ -7,7 +7,18 @@ import { api, money, ValuePoint } from "@/lib/api";
 // One series (portfolio value), so no legend: the title names it.
 // 2px line + light area from a zero baseline, recessive grid, emphasised end
 // point, crosshair + readout on hover/touch. Colors come from theme tokens.
-const RANGES: [string, number][] = [["30D", 30], ["90D", 90], ["1Y", 366]];
+// The range is owned by the page so the highlights can follow it. 0 = all.
+export const RANGES: [string, number][] = [["30D", 30], ["90D", 90], ["1Y", 366], ["All", 0]];
+
+export function RangePicker({ range, onRange }: { range: number; onRange: (d: number) => void }) {
+  return (
+    <div className="seg" role="group" aria-label="Date range">
+      {RANGES.map(([label, days]) => (
+        <button key={label} type="button" aria-pressed={range === days} onClick={() => onRange(days)}>{label}</button>
+      ))}
+    </div>
+  );
+}
 const H = 220, PAD = { top: 12, right: 12, bottom: 26, left: 58 };
 
 function niceTicks(max: number, count = 4): number[] {
@@ -26,10 +37,11 @@ const short = (n: number) =>
 const fmtDay = (d: string, withYear = false) =>
   new Date(d + "T12:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", ...(withYear ? { year: "numeric" } : {}) });
 
-export default function ValueChart({ id, refreshKey }: { id: string; refreshKey?: string | null }) {
+export default function ValueChart({ id, refreshKey, range, onRange }: {
+  id: string; refreshKey?: string | null; range: number; onRange: (d: number) => void;
+}) {
   const [points, setPoints] = useState<ValuePoint[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [range, setRange] = useState(90);
   const [hover, setHover] = useState<number | null>(null);
   const [width, setWidth] = useState(640);
   const box = useRef<HTMLDivElement | null>(null);
@@ -49,7 +61,7 @@ export default function ValueChart({ id, refreshKey }: { id: string; refreshKey?
     return () => ro.disconnect();
   }, [points]);
 
-  const data = useMemo(() => (points ?? []).slice(-range).map((p) => ({ date: p.date, v: Number(p.value) })), [points, range]);
+  const data = useMemo(() => (range ? (points ?? []).slice(-range) : (points ?? [])).map((p) => ({ date: p.date, v: Number(p.value) })), [points, range]);
 
   if (failed) return null;
   if (!points) {
@@ -98,11 +110,7 @@ export default function ValueChart({ id, refreshKey }: { id: string; refreshKey?
             {hover === null ? `Today · change since ${fmtDay(data[0].date, true)}` : `${fmtDay(data[shown].date, true)} · change since ${fmtDay(data[0].date)}`}
           </span>
         </div>
-        <div className="seg" role="group" aria-label="Chart range">
-          {RANGES.map(([label, days]) => (
-            <button key={label} type="button" aria-pressed={range === days} onClick={() => { setRange(days); setHover(null); }}>{label}</button>
-          ))}
-        </div>
+        <RangePicker range={range} onRange={(d) => { onRange(d); setHover(null); }} />
       </div>
 
       <div ref={box} style={{ width: "100%", minWidth: 0 }}>

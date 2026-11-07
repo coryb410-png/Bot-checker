@@ -65,6 +65,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
   // Poll while the scan runs. Transactions and NFTs are shown as soon as the
   // wallet has been read; dollar values and floors fill in when they arrive.
   const loadedAt = useRef<string | null>(null);
+  const [range, setRange] = useState(90);   // shared by the value chart and the highlights
   useEffect(() => {
     let stop = false;
     async function tick() {
@@ -185,9 +186,9 @@ export default function WalletPage({ params }: { params: { id: string } }) {
             <div className="panel stat"><span className="eyebrow">Fees paid</span><div className="v">{money(sm.fees_paid)}</div><div className="s">{sm.assets_sold} assets sold</div></div>
           </section>
 
-          {st.status === "ready" && <ValueChart id={id} refreshKey={st.updated_at} />}
+          {st.status === "ready" && <ValueChart id={id} refreshKey={st.updated_at} range={range} onRange={setRange} />}
 
-          <Highlights h={sm.highlights} />
+          <Highlights all={sm.highlights} byRange={sm.highlights_by_range} range={range} onRange={setRange} />
 
           <NftGallery holdings={holdings} />
 
