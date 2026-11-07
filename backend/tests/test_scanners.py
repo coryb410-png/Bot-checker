@@ -98,3 +98,35 @@ def test_metadata_does_not_split_lots():
     from core.models import Asset, Chain
     a = Asset(Chain.ETHEREUM, "PUNK", contract="0xabc", is_nft=True, token_id="7")
     assert replace(a, image="https://x/y.png", name="Punk #7") == a
+
+
+def test_pricing_respects_free_history_and_never_fails(monkeypatch):
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from core.models import Asset, Chain, Leg, NormalizedTx
+    from pricing.coingecko import PriceService
+    from scanners.base import ProviderError
+
+    now = datetime.now(timezone.utc)
+    calls = []
+
+    class FakeHttp:
+        async def get(self, url, params=None):
+            calls.append((url, params))
+            if "market_chart" in url:
+                if params["from"] < (now - timedelta(days=365)).timestamp():
+                    raise ProviderError("401 exceeds the allowed time range")
+                ts = int((now - timedelta(days=10)).timestamp() * 1000)
+                return {"prices": [[ts, 2500.0]]}
+            raise ProviderError("down")
+
+    monkeypatch.setenv("COINGECKO_PLAN", "demo")
+    ps = PriceService(http=FakeHttp())
+    eth = Asset(Chain.ETHEREUM, "ETH")
+    old = NormalizedTx(Chain.ETHEREUM, "old", now - timedelta(days=900), "w", [Leg(eth, D(1))])
+    new = NormalizedTx(Chain.ETHEREUM, "new", now - timedelta(days=10), "w", [Leg(eth, D(2))])
+    asyncio.run(ps.price_transactions([old, new]))      # must not raise
+    frm = calls[0][1]["from"]
+    assert frm >= (now - timedelta(days=365)).timestamp()  # clamped to the free window
+    assert new.legs[0].usd_value == D(5000) and old.legs[0].usd_value is None
+    assert asyncio.run(ps.current([eth])) == {}          # current-price outage is non-fatal

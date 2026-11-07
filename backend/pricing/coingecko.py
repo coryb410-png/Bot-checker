@@ -8,7 +8,8 @@ and in production that cache lives in the historical_prices table.
 from __future__ import annotations
 
 import bisect
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from classifiers.classify import STABLECOINS
@@ -17,6 +18,7 @@ from scanners.base import Http, ProviderError, env
 
 PLATFORM = {Chain.ETHEREUM: "ethereum", Chain.SOLANA: "solana"}
 NATIVE_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana"}
+log = logging.getLogger("chainscope.pricing")
 
 
 class PriceService:
@@ -26,6 +28,9 @@ class PriceService:
         base = "https://pro-api.coingecko.com/api/v3" if pro else "https://api.coingecko.com/api/v3"
         header = {"x-cg-pro-api-key" if pro else "x-cg-demo-api-key": key} if key else {}
         self.http = http or Http(base, rate_per_sec=0.4 if not pro else 8, headers=header)
+        # Free (demo/public) access only serves the last 365 days of history.
+        # Older transactions keep an unknown USD value instead of failing the scan.
+        self.history_days: int | None = None if pro else 364
         self._ids: dict[str, str | None] = {}
         self._series: dict[str, tuple[list[int], list[Decimal]]] = {}
 
@@ -47,8 +52,21 @@ class PriceService:
     async def _load(self, cid: str, start: datetime, end: datetime) -> None:
         if cid in self._series:
             return
-        d = await self.http.get(f"/coins/{cid}/market_chart/range", params={
-            "vs_currency": "usd", "from": int(start.timestamp()) - 86400, "to": int(end.timestamp()) + 86400})
+        now = datetime.now(timezone.utc)
+        frm, to = start - timedelta(days=1), min(end + timedelta(days=1), now)
+        if self.history_days is not None:
+            frm = max(frm, now - timedelta(days=self.history_days))
+        if frm >= to:
+            self._series[cid] = ([], [])   # all activity is older than the plan allows
+            return
+        try:
+            d = await self.http.get(f"/coins/{cid}/market_chart/range", params={
+                "vs_currency": "usd", "from": int(frm.timestamp()), "to": int(to.timestamp())})
+        except ProviderError as e:
+            # Prices are best-effort: a pricing problem must never fail a scan
+            log.warning("price history unavailable for %s: %s", cid, str(e)[:200])
+            self._series[cid] = ([], [])
+            return
         pts = d.get("prices") or []
         self._series[cid] = ([int(p[0] / 1000) for p in pts], [Decimal(str(p[1])) for p in pts])
 
@@ -94,7 +112,11 @@ class PriceService:
         wanted = sorted({i for i in ids.values() if i})
         out: dict[str, Decimal] = {}
         for i in range(0, len(wanted), 200):
-            d = await self.http.get("/simple/price", params={"ids": ",".join(wanted[i:i + 200]), "vs_currencies": "usd"})
+            try:
+                d = await self.http.get("/simple/price", params={"ids": ",".join(wanted[i:i + 200]), "vs_currencies": "usd"})
+            except ProviderError as e:
+                log.warning("current prices unavailable: %s", str(e)[:200])
+                continue
             for key, cid in ids.items():
                 if cid in d:
                     out[key] = Decimal(str(d[cid]["usd"]))
