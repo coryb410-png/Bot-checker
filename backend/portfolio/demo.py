@@ -14,7 +14,7 @@ from urllib.parse import quote
 from classifiers.spam import mark_spam
 from core.models import Asset, Chain, Leg, NormalizedTx
 from portfolio.pnl import Method
-from portfolio.service import Portfolio, recompute
+from portfolio.service import Portfolio, progress_key, recompute
 
 # Clearly fake addresses (valid formats, never used on-chain by us)
 BTC_ADDR = "bc1qexamp1e0000000000000000000000000000000"
@@ -99,7 +99,7 @@ def build_demo(pid: str, method: Method = Method.FIFO) -> Portfolio:
                                      (Chain.ETHEREUM, ETH_COLD), (Chain.SOLANA, SOL_ADDR)],
                   method=method, status="ready", txs=txs, demo=True)
     mark_spam(p.txs)
-    p.progress = {a: sum(1 for t in txs if t.wallet == a) for _, a in p.addresses}
+    p.progress = {progress_key(c, a): sum(1 for t in txs if t.wallet == a and t.chain == c) for c, a in p.addresses}
     recompute(p, CURRENT)
     p.updated_at = datetime.now(timezone.utc)
     return p

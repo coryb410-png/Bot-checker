@@ -24,7 +24,7 @@ import secrets
 from portfolio.demo import build_demo
 from portfolio.highlights import compute_highlights
 from portfolio.pnl import Method
-from portfolio.service import Store, recompute, run_scan
+from portfolio.service import Store, progress_key, recompute, run_scan
 from pricing.coingecko import PriceService
 
 app = FastAPI(title="ChainScope API", version="0.1.0")
@@ -165,7 +165,7 @@ async def wallet(pid: str):
     return {
         "id": p.id, "status": p.status, "error": p.error, "method": p.method, "demo": p.demo,
         "addresses": [{"chain": c.value, "address": a, "label": p.labels.get(a),
-                       "scanned": p.progress.get(a, 0)} for c, a in p.addresses],
+                       "scanned": p.progress.get(progress_key(c, a), 0)} for c, a in p.addresses],
         "updated_at": p.updated_at,
         "summary": None if not r else {
             "portfolio_value": usd(r.portfolio_value),
@@ -314,5 +314,6 @@ def _tx_json(t, realized: dict):
             "bitcoin": f"https://mempool.space/tx/{t.tx_hash}",
             "ethereum": f"https://etherscan.io/tx/{t.tx_hash}",
             "solana": f"https://solscan.io/tx/{t.tx_hash}",
+            "robinhood": f"https://robinhoodchain.blockscout.com/tx/{t.tx_hash}",
         }[t.chain.value],
     }

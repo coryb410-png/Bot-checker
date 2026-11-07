@@ -113,7 +113,8 @@ export const api = {
 
 export function explorerUrl(chain: string, hash: string): string {
   return chain === "bitcoin" ? `https://mempool.space/tx/${hash}`
-    : chain === "solana" ? `https://solscan.io/tx/${hash}` : `https://etherscan.io/tx/${hash}`;
+    : chain === "solana" ? `https://solscan.io/tx/${hash}`
+    : chain === "robinhood" ? `https://robinhoodchain.blockscout.com/tx/${hash}` : `https://etherscan.io/tx/${hash}`;
 }
 
 export function money(v: string | null | undefined, signed = false): string {

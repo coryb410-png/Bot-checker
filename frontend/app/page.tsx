@@ -120,7 +120,7 @@ export default function Home() {
           </div>
           <div className="row" style={{ fontSize: 13, color: "var(--muted)", justifyContent: "space-between" }}>
             <span>
-              {detected ? <span className={`chip ${detected}`}>{CHAIN_LABEL[detected]} detected</span>
+              {detected ? <span className={`chip ${detected}`}>{CHAIN_LABEL[detected]}{detected === "ethereum" ? " + Robinhood Chain" : ""} detected</span>
                 : typedName ? <span className={`chip ${typedName.endsWith(".sol") ? "solana" : "ethereum"}`}>{typedName.endsWith(".sol") ? "Solana" : "ENS"} name</span>
                 : "Network is detected automatically. Names like name.eth work too."}
             </span>
@@ -141,7 +141,7 @@ export default function Home() {
               {entries.map((e) => (
                 <li key={e.address}>
                   <span className="row" style={{ minWidth: 0 }}>
-                    <span className={`chip ${e.chain}`}>{CHAIN_LABEL[e.chain]}</span>
+                    <span className={`chip ${e.chain}`}>{CHAIN_LABEL[e.chain]}{e.chain === "ethereum" ? " + Robinhood" : ""}</span>
                     {e.label && <strong>{e.label}</strong>}
                     <span className="mono" title={e.address} style={e.label ? { color: "var(--muted)", fontSize: 13 } : undefined}>{shorten(e.address, e.label ? 4 : 8)}</span>
                   </span>

@@ -157,3 +157,42 @@ def test_coin_directory_replaces_per_token_lookups(monkeypatch):
     ids = [asyncio.run(ps.coin_id(a)) for a in (pepe, bonk, junk, scam)]
     assert ids == ["pepe", "bonk", None, None]
     assert calls == ["/coins/list"]          # one call total, no per-token lookups
+
+
+def test_robinhood_chain_swap_and_nft():
+    from scanners.robinhood import RobinhoodScanner
+    me = "0x579d41f9be27cd2d0b9c2decc82877ae87c56b4c"
+    ts = "2026-11-07T02:41:55.000000Z"
+    txs = [{  # shape taken from the live Robinhood Chain Blockscout API
+        "hash": "0xa2d9", "timestamp": ts, "status": "ok", "value": "2300000000000000",
+        "fee": {"type": "actual", "value": "4021806244000"},
+        "from": {"hash": "0x579d41f9bE27cD2d0B9c2DecC82877ae87c56B4C", "is_contract": False},
+        "to": {"hash": "0x65050A9b7E5075A2bA5cED7b1b64EE66262c40Dc", "is_contract": True, "name": "Swap Router"},
+    }]
+    tokens = [
+        {"transaction_hash": "0xa2d9", "timestamp": ts,
+         "from": {"hash": "0xpool"}, "to": {"hash": me},
+         "token": {"address_hash": "0xTSLA", "symbol": "TSLA", "name": "Tesla (tokenized)", "decimals": "18", "type": "ERC-20"},
+         "total": {"decimals": "18", "value": "500000000000000000"}},
+        {"transaction_hash": "0xnft", "timestamp": ts,
+         "from": {"hash": "0xminter"}, "to": {"hash": me},
+         "token": {"address_hash": "0xNFT", "symbol": "HOOD", "name": "Hood Pass", "type": "ERC-721"},
+         "total": {"token_id": "7", "token_instance": {"image_url": "ipfs://Qm1/7.png", "metadata": {"name": "Hood Pass #7"}}}},
+    ]
+    out = {t.tx_hash: t for t in RobinhoodScanner.normalize(me, txs, [], tokens)}
+    swap = out["0xa2d9"]
+    assert {(l.asset.symbol, l.amount) for l in swap.legs} == {("ETH", D("-0.0023")), ("TSLA", D("0.5"))}
+    assert swap.fee == D("0.000004021806244") and swap.source == "Swap Router"
+    assert swap.chain.value == "robinhood"
+    assert classify_all([swap], {me})[0].tx_type == TxType.SWAP
+    nft = out["0xnft"].legs[0].asset
+    assert nft.is_nft and nft.name == "Hood Pass #7" and nft.image == "https://ipfs.io/ipfs/Qm1/7.png"
+
+
+def test_eth_address_is_also_scanned_on_robinhood_chain():
+    from core.models import Chain
+    from portfolio.pnl import Method
+    from portfolio.service import Store
+    p = Store().create(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"], Method.FIFO)
+    chains = [c for c, _ in p.addresses]
+    assert chains.count(Chain.ROBINHOOD) == 1 and Chain.ETHEREUM in chains and Chain.BITCOIN in chains

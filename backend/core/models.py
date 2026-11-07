@@ -16,6 +16,7 @@ class Chain(str, Enum):
     BITCOIN = "bitcoin"
     ETHEREUM = "ethereum"
     SOLANA = "solana"
+    ROBINHOOD = "robinhood"   # Robinhood Chain, an Ethereum L2 (chain ID 4663)
 
 
 class TxType(str, Enum):

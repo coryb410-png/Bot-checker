@@ -1,6 +1,6 @@
 # ChainScope
 
-Read-only crypto history for Bitcoin, Ethereum and Solana. Paste public addresses,
+Read-only crypto history for Bitcoin, Ethereum, Solana and Robinhood Chain. Paste public addresses,
 get every purchase, sale, swap and transfer with historical USD values, holdings
 and realized/unrealized profit and loss. No wallet connection, signatures or keys.
 
@@ -15,7 +15,7 @@ chainscope/
 │   ├── pricing/             CoinGecko historical + current prices
 │   ├── portfolio/           pnl.py (FIFO + average cost engine), service.py (scan jobs)
 │   ├── api/main.py          All endpoints
-│   └── tests/               30 tests: addresses, classification, P&L, provider parsing
+│   └── tests/               34 tests: addresses, classification, P&L, provider parsing
 ├── frontend/                Next.js 14 · address entry + dashboard
 ├── migrations/001_init.sql  PostgreSQL schema
 ├── docker-compose.yml
@@ -70,6 +70,16 @@ calling any provider, so it works even with no API keys set.
   "P&L unknown" until the user enters the cost. Stablecoins are treated as $1.
 - **Transfers out to someone else** reduce holdings at cost and are not counted as
   sales, since the chain can't tell a payment from a gift or an exchange deposit.
+
+## Robinhood Chain
+
+Robinhood Chain (chain ID 4663) is an Ethereum layer 2 that uses ETH for gas,
+so every 0x address is scanned on both Ethereum and Robinhood Chain
+automatically. Data comes from the public Blockscout explorer API
+(`ROBINHOOD_BLOCKSCOUT_URL`, default https://robinhoodchain.blockscout.com),
+which needs no key. ETH on either network shares one cost-basis pool. Tokenized
+stocks and other Robinhood Chain tokens have no CoinGecko price yet, so their
+USD values show as unknown. Scanner: `backend/scanners/robinhood.py`.
 
 ## Highlights
 

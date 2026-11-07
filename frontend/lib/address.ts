@@ -1,10 +1,11 @@
 // Instant client-side checks. The API re-validates with full checksums.
-export type Chain = "bitcoin" | "ethereum" | "solana";
+export type Chain = "bitcoin" | "ethereum" | "solana" | "robinhood";
 
 export const CHAIN_LABEL: Record<Chain, string> = {
   bitcoin: "Bitcoin",
   ethereum: "Ethereum",
   solana: "Solana",
+  robinhood: "Robinhood Chain",
 };
 
 const B58 = "[1-9A-HJ-NP-Za-km-z]";

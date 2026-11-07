@@ -52,10 +52,16 @@ class Store:
         for a in addresses:
             chain = detect_chain(a)
             parsed.append((chain, normalize(a, chain)))
+        # The same 0x address also exists on Robinhood Chain (an Ethereum L2):
+        # scan it there too, automatically.
+        for chain, addr in list(parsed):
+            if chain == Chain.ETHEREUM and (Chain.ROBINHOOD, addr) not in parsed:
+                parsed.append((Chain.ROBINHOOD, addr))
         p = Portfolio(id=secrets.token_urlsafe(9), addresses=parsed, method=method)
-        for raw, (chain, norm) in zip(addresses, parsed):
+        for raw in addresses:
             if labels and labels.get(raw):
-                p.labels[norm] = labels[raw]
+                chain = detect_chain(raw)
+                p.labels[normalize(raw, chain)] = labels[raw]
         self.portfolios[p.id] = p
         return p
 
@@ -70,6 +76,12 @@ class Store:
         return self.portfolios.pop(pid, None) is not None
 
 
+def progress_key(chain: Chain, address: str) -> str:
+    """Scan progress and sync cursors are per network: one 0x address is
+    scanned on both Ethereum and Robinhood Chain."""
+    return f"{chain.value}:{address}"
+
+
 def _scanner(chain: Chain):
     # Imported lazily so a missing key for one chain doesn't block the others
     if chain == Chain.BITCOIN:
@@ -78,6 +90,9 @@ def _scanner(chain: Chain):
     if chain == Chain.ETHEREUM:
         from scanners.ethereum import EthereumScanner
         return EthereumScanner()
+    if chain == Chain.ROBINHOOD:
+        from scanners.robinhood import RobinhoodScanner
+        return RobinhoodScanner()
     from scanners.solana import SolanaScanner
     return SolanaScanner()
 
@@ -88,9 +103,10 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
 
         async def one(chain: Chain, addr: str) -> list[NormalizedTx]:
             out = []
-            async for tx in _scanner(chain).scan(addr, p.cursors.get(addr)):
+            key = progress_key(chain, addr)
+            async for tx in _scanner(chain).scan(addr, p.cursors.get(key)):
                 out.append(tx)
-                p.progress[addr] = len(out)
+                p.progress[key] = len(out)
                 if len(out) >= MAX_TXS_PER_ADDRESS:
                     break
             return out
@@ -99,7 +115,7 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
         new = [t for batch in results for t in batch]
         for (c, a), batch in zip(p.addresses, results):
             if batch:
-                p.cursors[a] = batch[0].tx_hash
+                p.cursors[progress_key(c, a)] = batch[0].tx_hash
 
         p.status = "pricing"
         await prices.price_transactions(new)
