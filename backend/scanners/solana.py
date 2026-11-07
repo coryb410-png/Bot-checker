@@ -1,0 +1,138 @@
+"""Solana via Helius (Enhanced Transactions API + DAS for token metadata).
+
+Docs: https://www.helius.dev/docs  (Enhanced Transactions: parsed history
+for an address; DAS getAssetBatch: token/NFT names and symbols)
+
+Helius has moved hostnames before; both base URLs are configurable.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import AsyncIterator
+
+from core.models import Asset, Chain, Leg, NormalizedTx, safe_image
+
+from .base import Http, env
+
+LAMPORTS = Decimal(1_000_000_000)
+SOL = Asset(Chain.SOLANA, "SOL", decimals=9, coingecko_id="solana")
+WSOL = "So11111111111111111111111111111111111111112"
+KNOWN_MINTS = {
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": ("USDC", 6, "usd-coin"),
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": ("USDT", 6, "tether"),
+    "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN": ("JUP", 6, "jupiter-exchange-solana"),
+    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": ("BONK", 5, "bonk"),
+}
+NFT_STANDARDS = {"NonFungible", "ProgrammableNonFungible", "NonFungibleEdition", "Compressed"}
+
+
+class SolanaScanner:
+    def __init__(self, http: Http | None = None, rpc: Http | None = None):
+        self.key = env("HELIUS_API_KEY")
+        self.http = http or Http(env("HELIUS_API_BASE", "https://api.helius.xyz/v0"), rate_per_sec=8)
+        self.rpc = rpc or Http(env("HELIUS_RPC_URL", f"https://mainnet.helius-rpc.com/?api-key={self.key}"), rate_per_sec=8)
+        self._meta: dict[str, dict] = {}
+
+    async def scan(self, address: str, since_cursor: str | None = None) -> AsyncIterator[NormalizedTx]:
+        before = None
+        while True:
+            params = {"api-key": self.key, "limit": 100}
+            if before:
+                params["before"] = before
+            page = await self.http.get(f"/addresses/{address}/transactions", params=params)
+            if not page:
+                return
+            await self._resolve_mints({t["mint"] for raw in page for t in raw.get("tokenTransfers", [])})
+            for raw in page:
+                if raw["signature"] == since_cursor:
+                    return
+                yield self.normalize(raw, address)
+            before = page[-1]["signature"]
+
+    async def _resolve_mints(self, mints: set[str]) -> None:
+        todo = [m for m in mints if m not in self._meta and m not in KNOWN_MINTS and m != WSOL]
+        for i in range(0, len(todo), 1000):
+            try:
+                res = await self.rpc.post("", json={"jsonrpc": "2.0", "id": 1, "method": "getAssetBatch",
+                                                   "params": {"ids": todo[i:i + 1000]}})
+            except Exception:
+                continue   # names/images are optional; the scan carries on
+            for a in res.get("result") or []:
+                if a:
+                    self._meta[a["id"]] = parse_das_asset(a)
+
+    def _asset(self, mint: str, standard: str | None) -> Asset:
+        if mint == WSOL:
+            return SOL   # wrapped SOL behaves as SOL for cost basis
+        if mint in KNOWN_MINTS:
+            sym, dec, cg = KNOWN_MINTS[mint]
+            return Asset(Chain.SOLANA, sym, contract=mint, decimals=dec, coingecko_id=cg)
+        m = self._meta.get(mint) or {"symbol": mint[:4] + "…", "decimals": 0, "is_nft": False}
+        is_nft = m["is_nft"] or (standard in NFT_STANDARDS)
+        return Asset(Chain.SOLANA, m["symbol"], contract=mint, decimals=m["decimals"], is_nft=is_nft,
+                     token_id=mint if is_nft else None, name=m.get("name"), image=m.get("image"))
+
+    def normalize(self, raw: dict, me: str) -> NormalizedTx:
+        net: dict[str, Decimal] = defaultdict(Decimal)
+        assets: dict[str, Asset] = {}
+        cps: dict[str, str] = {}
+
+        native = Decimal(0)
+        for n in raw.get("nativeTransfers") or []:
+            amt = Decimal(n["amount"]) / LAMPORTS
+            if n.get("toUserAccount") == me:
+                native += amt; cps.setdefault(SOL.key, n.get("fromUserAccount"))
+            if n.get("fromUserAccount") == me:
+                native -= amt; cps.setdefault(SOL.key, n.get("toUserAccount"))
+
+        for t in raw.get("tokenTransfers") or []:
+            a = self._asset(t["mint"], t.get("tokenStandard"))
+            amt = Decimal(str(t.get("tokenAmount") or 0))
+            if t.get("toUserAccount") == me:
+                net[a.key] += amt; cps.setdefault(a.key, t.get("fromUserAccount"))
+            if t.get("fromUserAccount") == me:
+                net[a.key] -= amt; cps.setdefault(a.key, t.get("toUserAccount"))
+            assets[a.key] = a
+
+        paid = raw.get("feePayer") == me
+        fee = Decimal(raw.get("fee", 0)) / LAMPORTS if paid else Decimal(0)
+        # Tiny SOL movements next to a token transfer are account rent
+        # (opening token accounts), not trades: count them as fees.
+        if net and abs(native) < Decimal("0.003"):
+            fee += max(-native, Decimal(0))
+            native = Decimal(0)
+        if native:
+            net[SOL.key] += native
+        if SOL.key in net:
+            assets[SOL.key] = SOL
+
+        legs = [Leg(assets[k], v, counterparty=cps.get(k)) for k, v in net.items() if v != 0]
+        return NormalizedTx(
+            chain=Chain.SOLANA, tx_hash=raw["signature"],
+            timestamp=datetime.fromtimestamp(raw["timestamp"], timezone.utc),
+            wallet=me, legs=legs, fee=fee, fee_asset=SOL if fee else None,
+            source=raw.get("source") if raw.get("source") not in (None, "UNKNOWN", "SYSTEM_PROGRAM") else None,
+            interacted_with=next((i.get("programId") for i in raw.get("instructions") or []), None),
+            success=raw.get("transactionError") is None,
+        )
+
+
+def parse_das_asset(a: dict) -> dict:
+    """Symbol, decimals, NFT flag, display name and image from a DAS asset."""
+    content = a.get("content") or {}
+    md = content.get("metadata") or {}
+    ti = a.get("token_info") or {}
+    links = content.get("links") or {}
+    files = content.get("files") or []
+    is_nft = a.get("interface") in ("V1_NFT", "ProgrammableNFT", "MplCoreAsset", "LEGACY_NFT", "V2_NFT")
+    img = links.get("image") or next((f.get("cdn_uri") or f.get("uri") for f in files
+                                      if (f.get("mime") or "").startswith("image")), None)
+    return {
+        "symbol": ti.get("symbol") or md.get("symbol") or md.get("name") or a["id"][:4] + "…",
+        "decimals": ti.get("decimals") or 0,
+        "is_nft": is_nft,
+        "name": md.get("name"),
+        "image": safe_image(img),
+    }

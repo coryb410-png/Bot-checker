@@ -1,0 +1,16 @@
+# Secrets: keys go in Render/Vercel settings, never in the repo
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo

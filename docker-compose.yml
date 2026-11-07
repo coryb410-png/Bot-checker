@@ -1,0 +1,23 @@
+services:
+  api:
+    build: ./backend
+    env_file: .env
+    ports: ["8000:8000"]
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports: ["3000:3000"]
+    depends_on: [api]
+    restart: unless-stopped
+
+  # Ready for the Postgres store (schema in migrations/001_init.sql).
+  # Enable when backend/database/postgres.py replaces the in-memory store.
+  # db:
+  #   image: postgres:16
+  #   environment: { POSTGRES_PASSWORD: chainscope, POSTGRES_DB: chainscope }
+  #   volumes: ["./migrations:/docker-entrypoint-initdb.d", "pgdata:/var/lib/postgresql/data"]
+  #   ports: ["5432:5432"]
+# volumes: { pgdata: {} }
