@@ -2,12 +2,32 @@
 // which forwards them to the backend.
 const BASE = "";
 
+// The free server sleeps when idle and answers 502/503/504 while it wakes
+// (about 30-60 seconds). Those requests never reached ChainScope, so retrying
+// them is safe; waiting here means visitors don't see an error.
+const WAKING = new Set([502, 503, 504]);
+const RETRY_DELAYS_MS = [4000, 8000, 12000, 16000, 20000];
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    cache: "no-store",
-  });
+  let r: Response | null = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      r = await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+        cache: "no-store",
+      });
+    } catch {
+      r = null;
+    }
+    // Retry only when the host (not ChainScope) answered: our own errors are final
+    const waking = !r || (WAKING.has(r.status) && (r.headers.get("x-chainscope-waking") === "1"
+      || !(r.headers.get("content-type") ?? "").includes("json")));
+    if (!waking) break;
+    if (attempt >= RETRY_DELAYS_MS.length) break;
+    await new Promise((res) => setTimeout(res, RETRY_DELAYS_MS[attempt]));
+  }
+  if (!r) throw new Error("Can't reach ChainScope right now. Check your connection and try again.");
   if (!r.ok) {
     let msg = `Request failed (${r.status})`;
     try {

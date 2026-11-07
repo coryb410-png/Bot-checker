@@ -30,7 +30,7 @@ async function forward(req: NextRequest, { params }: { params: { path: string[] 
         { detail: r.status === 502 || r.status === 503
             ? "The ChainScope server is waking up. Wait about 30 seconds and try again."
             : `The ChainScope server answered with an error (${r.status}). Try again in a moment.` },
-        { status: r.status },
+        { status: r.status, headers: { "x-chainscope-waking": "1" } },
       );
     }
     return new Response(r.status === 204 ? null : text, {
@@ -41,7 +41,7 @@ async function forward(req: NextRequest, { params }: { params: { path: string[] 
     console.error(`[proxy] ${req.method} ${url} failed:`, e);
     return Response.json(
       { detail: "The ChainScope server is waking up or unreachable. Wait about 30 seconds and try again." },
-      { status: 502 },
+      { status: 502, headers: { "x-chainscope-waking": "1" } },
     );
   }
 }
