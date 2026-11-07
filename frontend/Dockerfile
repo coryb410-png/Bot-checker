@@ -11,5 +11,7 @@ FROM node:20-alpine
 WORKDIR /app
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
+# Logos, monkeys and other files in /public must ship with the standalone server
+COPY --from=build /app/public ./public
 EXPOSE 3000
 CMD ["node", "server.js"]
