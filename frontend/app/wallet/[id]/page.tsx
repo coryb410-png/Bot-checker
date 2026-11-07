@@ -196,6 +196,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
                       <td><span className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
                         {h.nft ? <NftThumb src={h.image} name={h.name ?? h.asset} spam={h.spam} size={36} /> : <span className={`chip ${h.chain}`}>{h.chain.slice(0, 3)}</span>}
                         {h.nft ? (h.name ?? h.asset) : h.asset}
+                        {h.compressed && <span className="chip plain">cNFT</span>}
                       </span></td>
                       <td className="r">{Number(h.quantity).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
                       <td className="r">{money(h.price)}</td>
@@ -249,7 +250,12 @@ export default function WalletPage({ params }: { params: { id: string } }) {
                         {t.spam && <span className="chip" style={{ color: "var(--warn)", marginRight: 6 }}>Spam</span>}
                         {t.label}{!t.success && <span className="loss"> · failed</span>}
                       </div>
-                      {nfts.length > 0 && <div style={{ fontSize: 14, overflowWrap: "anywhere" }}>{nfts.map((l) => l.name ?? `${l.asset} #${l.token_id}`).join(", ")}</div>}
+                      {nfts.length > 0 && (
+                        <div style={{ fontSize: 14, overflowWrap: "anywhere" }}>
+                          {nfts.map((l) => l.name ?? `${l.asset} #${l.token_id}`).join(", ")}
+                          {nfts.some((l) => l.compressed) && <span className="chip plain" style={{ marginLeft: 6 }}>cNFT</span>}
+                        </div>
+                      )}
                       <div className="meta">
                         {new Date(t.date).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" })} · {t.source ?? CHAIN_LABEL[t.chain as Chain]} ·{" "}
                         <a href={t.explorer} target="_blank" rel="noreferrer" className="mono">{shorten(t.hash, 5)}</a>

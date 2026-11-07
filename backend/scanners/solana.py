@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import AsyncIterator
 
+from classifiers.spam import looks_like_scam
 from core.models import Asset, Chain, Leg, NormalizedTx, safe_image
 
 from .base import Http, env
@@ -53,7 +54,9 @@ class SolanaScanner:
             page = await self.http.get(f"/addresses/{address}/transactions", params=params)
             if not page:
                 return
-            await self._resolve_mints({t["mint"] for raw in page for t in raw.get("tokenTransfers", [])})
+            mints = {t["mint"] for raw in page for t in raw.get("tokenTransfers") or []}
+            mints |= {ev["assetId"] for raw in page for ev in _compressed_events(raw) if ev.get("assetId")}
+            await self._resolve_mints(mints)
             for raw in page:
                 if raw["signature"] == since_cursor:
                     return
@@ -82,9 +85,11 @@ class SolanaScanner:
             sym, dec, cg = KNOWN_MINTS[mint]
             return Asset(Chain.SOLANA, sym, contract=mint, decimals=dec, coingecko_id=cg)
         m = self._meta.get(mint) or {"symbol": mint[:4] + "…", "decimals": 0, "is_nft": False}
-        is_nft = m["is_nft"] or (standard in NFT_STANDARDS)
+        compressed = bool(m.get("compressed")) or standard == "Compressed"
+        is_nft = m["is_nft"] or compressed or (standard in NFT_STANDARDS)
         return Asset(Chain.SOLANA, m["symbol"], contract=mint, decimals=m["decimals"], is_nft=is_nft,
-                     token_id=mint if is_nft else None, name=m.get("name"), image=m.get("image"))
+                     token_id=mint if is_nft else None, name=m.get("name"), image=m.get("image"),
+                     spam=bool(m.get("spam")), compressed=compressed)
 
     def normalize(self, raw: dict, me: str) -> NormalizedTx:
         net: dict[str, Decimal] = defaultdict(Decimal)
@@ -106,6 +111,24 @@ class SolanaScanner:
                 net[a.key] += amt; cps.setdefault(a.key, t.get("fromUserAccount"))
             if t.get("fromUserAccount") == me:
                 net[a.key] -= amt; cps.setdefault(a.key, t.get("toUserAccount"))
+            assets[a.key] = a
+
+        # Compressed NFTs (cNFTs) don't move as tokens: Helius reports them as
+        # compressed events with the old and new owner of the asset.
+        for ev in _compressed_events(raw):
+            aid = ev.get("assetId")
+            if not aid:
+                continue
+            new, old = ev.get("newLeafOwner"), ev.get("oldLeafOwner")
+            if new == old:
+                continue   # e.g. delegate or metadata changes
+            a = self._asset(aid, "Compressed")
+            if new == me:
+                net[a.key] += 1; cps.setdefault(a.key, old)
+            elif old == me:
+                net[a.key] -= 1; cps.setdefault(a.key, new)
+            else:
+                continue
             assets[a.key] = a
 
         paid = raw.get("feePayer") == me
@@ -131,6 +154,11 @@ class SolanaScanner:
         )
 
 
+def _compressed_events(raw: dict) -> list[dict]:
+    ev = (raw.get("events") or {}).get("compressed") or []
+    return ev if isinstance(ev, list) else [ev]
+
+
 def parse_das_asset(a: dict) -> dict:
     """Symbol, decimals, NFT flag, display name and image from a DAS asset."""
     content = a.get("content") or {}
@@ -138,7 +166,8 @@ def parse_das_asset(a: dict) -> dict:
     ti = a.get("token_info") or {}
     links = content.get("links") or {}
     files = content.get("files") or []
-    is_nft = a.get("interface") in ("V1_NFT", "ProgrammableNFT", "MplCoreAsset", "LEGACY_NFT", "V2_NFT")
+    compressed = bool((a.get("compression") or {}).get("compressed"))
+    is_nft = compressed or a.get("interface") in ("V1_NFT", "ProgrammableNFT", "MplCoreAsset", "LEGACY_NFT", "V2_NFT")
     # Prefer Helius's image CDN (fast, phone-friendly), then the original link
     image_files = [f for f in files if (f.get("mime") or "").startswith("image") or f.get("cdn_uri")]
     img = next((f["cdn_uri"] for f in image_files if f.get("cdn_uri")), None) \
@@ -149,4 +178,7 @@ def parse_das_asset(a: dict) -> dict:
         "is_nft": is_nft,
         "name": md.get("name"),
         "image": safe_image(img),
+        "compressed": compressed,
+        # Scam airdrops (very often cNFTs) advertise links in their name or description
+        "spam": looks_like_scam(md.get("name")) or looks_like_scam(md.get("description")),
     }

@@ -115,3 +115,5 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 .hl:hover { border-color: var(--accent); }
 .hl-v { font: 600 24px/1.15 var(--mono); font-variant-numeric: tabular-nums; }
 .hl .meta { color: var(--muted); font-size: 13px; }
+
+.chip.plain::before { display: none; }

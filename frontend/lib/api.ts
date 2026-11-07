@@ -78,6 +78,7 @@ export interface WalletStatus {
 }
 export interface Leg {
   asset: string; name: string | null; nft: boolean; token_id: string | null; image: string | null; spam: boolean;
+  compressed?: boolean;
   amount: string; usd: string | null; counterparty: string | null;
 }
 export interface Tx {
@@ -87,7 +88,8 @@ export interface Tx {
 }
 export interface Holding {
   asset: string; chain: string; key: string; quantity: string;
-  nft: boolean; name: string | null; image: string | null; spam: boolean; price: string | null; value: string | null;
+  nft: boolean; name: string | null; image: string | null; spam: boolean; compressed?: boolean;
+  price: string | null; value: string | null;
   cost_basis: string | null; unrealized_pnl: string | null; unknown_basis_qty: string;
 }
 

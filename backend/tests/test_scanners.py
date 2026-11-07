@@ -230,3 +230,37 @@ def test_alchemy_spam_uses_verdict_not_heuristics():
     out = parse_alchemy_nfts(res)
     assert out[("0xa", "1979")]["spam"] is False
     assert out[("0xb", "1")]["spam"] is True
+
+
+def test_solana_compressed_nfts(monkeypatch):
+    monkeypatch.setenv("HELIUS_API_KEY", "k")
+    sc = SolanaScanner(http=object(), rpc=object())
+    sc._meta["cAsset1"] = {"symbol": "DRIP", "decimals": 0, "is_nft": True, "name": "DRiP Drop #5",
+                           "image": "https://cdn.helius-rpc.com/x.png", "compressed": True, "spam": False}
+    sc._meta["cScam"] = {"symbol": "X", "decimals": 0, "is_nft": True, "name": "Claim 500 USDC at drop.xyz",
+                         "image": None, "compressed": True, "spam": True}
+    base = {"timestamp": 1_762_000_000, "fee": 5000, "transactionError": None, "instructions": [],
+            "nativeTransfers": [], "tokenTransfers": []}
+    received = sc.normalize({**base, "signature": "s1", "feePayer": "minter",
+                             "events": {"compressed": [{"type": "COMPRESSED_NFT_MINT", "assetId": "cAsset1",
+                                                        "newLeafOwner": ME_SOL, "oldLeafOwner": None}]}}, ME_SOL)
+    sent = sc.normalize({**base, "signature": "s2", "feePayer": ME_SOL,
+                         "events": {"compressed": [{"type": "COMPRESSED_NFT_TRANSFER", "assetId": "cAsset1",
+                                                    "newLeafOwner": "friend", "oldLeafOwner": ME_SOL}]}}, ME_SOL)
+    scam = sc.normalize({**base, "signature": "s3", "feePayer": "spammer",
+                         "events": {"compressed": [{"type": "COMPRESSED_NFT_TRANSFER", "assetId": "cScam",
+                                                    "newLeafOwner": ME_SOL, "oldLeafOwner": "spammer"}]}}, ME_SOL)
+    leg = received.legs[0]
+    assert leg.amount == 1 and leg.asset.is_nft and leg.asset.compressed and leg.asset.name == "DRiP Drop #5"
+    assert sent.legs[0].amount == -1 and sent.fee > 0
+    assert scam.legs[0].asset.spam is True
+    from classifiers.spam import is_spam_tx
+    assert is_spam_tx(scam) and not is_spam_tx(received)
+
+
+def test_das_marks_compressed_and_scam():
+    from scanners.solana import parse_das_asset
+    m = parse_das_asset({"id": "c1", "interface": "V1_NFT", "compression": {"compressed": True},
+                         "content": {"metadata": {"name": "Free gift", "description": "Visit claim-sol.com now"},
+                                     "files": [{"uri": "https://a/x.png", "cdn_uri": "https://cdn.helius-rpc.com/x", "mime": "image/png"}]}})
+    assert m["compressed"] and m["is_nft"] and m["spam"] and m["image"] == "https://cdn.helius-rpc.com/x"

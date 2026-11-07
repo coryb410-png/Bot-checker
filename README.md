@@ -15,7 +15,7 @@ chainscope/
 │   ├── pricing/             CoinGecko historical + current prices
 │   ├── portfolio/           pnl.py (FIFO + average cost engine), service.py (scan jobs)
 │   ├── api/main.py          All endpoints
-│   └── tests/               34 tests: addresses, classification, P&L, provider parsing
+│   └── tests/               39 tests: addresses, classification, P&L, provider parsing
 ├── frontend/                Next.js 14 · address entry + dashboard
 ├── migrations/001_init.sql  PostgreSQL schema
 ├── docker-compose.yml
@@ -80,6 +80,14 @@ automatically. Data comes from the public Blockscout explorer API
 which needs no key. ETH on either network shares one cost-basis pool. Tokenized
 stocks and other Robinhood Chain tokens have no CoinGecko price yet, so their
 USD values show as unknown. Scanner: `backend/scanners/robinhood.py`.
+
+## Compressed NFTs (Solana)
+
+cNFTs don't move as tokens, so they're read from the compressed events in
+Helius's parsed transactions (`events.compressed`: asset ID plus old and new
+owner). Names and pictures come from the same DAS lookup as regular NFTs, and
+they're tagged "cNFT" in the dashboard. Many scam airdrops are cNFTs, so any
+cNFT whose name or description advertises a link or giveaway is hidden as spam.
 
 ## Highlights
 

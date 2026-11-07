@@ -231,6 +231,7 @@ async def holdings(pid: str):
              "nft": a.asset_key in images, "name": getattr(images.get(a.asset_key), "name", None),
              "image": getattr(images.get(a.asset_key), "image", None),
              "spam": getattr(images.get(a.asset_key), "spam", False),
+             "compressed": getattr(images.get(a.asset_key), "compressed", False),
              "price": usd(a.current_price), "value": usd(a.market_value),
              "cost_basis": usd(a.cost_basis), "unrealized_pnl": usd(a.unrealized),
              "unknown_basis_qty": s(a.unknown_qty)} for a in items]
@@ -306,6 +307,7 @@ def _tx_json(t, realized: dict):
         "type": t.tx_type, "label": t.label, "spam": is_spam_tx(t), "source": t.source, "success": t.success,
         "legs": [{"asset": l.asset.symbol, "name": l.asset.name, "nft": l.asset.is_nft,
                   "token_id": l.asset.token_id, "image": l.asset.image, "spam": l.asset.spam,
+                  "compressed": l.asset.compressed,
                   "amount": s(l.amount), "usd": usd(l.usd_value), "counterparty": l.counterparty} for l in t.legs],
         "fee": s(t.fee), "fee_usd": usd(t.fee_usd),
         "usd_in": usd(sum((l.usd_value or 0 for l in t.received), Decimal(0))),
