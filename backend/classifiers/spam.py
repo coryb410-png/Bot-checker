@@ -36,6 +36,16 @@ def looks_like_scam(text: str | None) -> bool:
     return bool(text and SCAM_TEXT.search(text))
 
 
+LINK = re.compile(r"(https?://|www\.|t\.me/|\b[a-z0-9-]+\.(com|io|xyz|org|net|app|site|club|top|live|pro|fi|gg|me|co)\b)", re.I)
+LURE = re.compile(r"\b(claim|reward|airdrop|bonus|voucher|giveaway|free|prize|winner|eligible|redeem|gift)\b|\$\s?\d|✅|🎁", re.I)
+
+
+def looks_like_scam_description(text: str | None) -> bool:
+    """A link alone is normal (most collections link their website). Scam
+    airdrops pair a link with a lure: "claim", "reward", "$500 free"…"""
+    return bool(text and LINK.search(text) and LURE.search(text))
+
+
 def mark_spam(txs: list[NormalizedTx]) -> set[str]:
     """Set asset.spam on every leg of a spam asset. Returns the spam keys.
     Run after pricing, since rule 3 depends on whether a price was found."""
@@ -64,10 +74,18 @@ def mark_spam(txs: list[NormalizedTx]) -> set[str]:
         if unsolicited:
             flagged.add(k)
 
+    # Anything the user actually bought, sold or sent is theirs, not spam,
+    # and so is the rest of that NFT collection (same symbol).
+    trusted_collections = {(sample[k].chain, sample[k].symbol.upper()) for k in engaged if sample[k].is_nft}
+    trusted = set(engaged) | {k for k, a in sample.items()
+                              if a.is_nft and (a.chain, a.symbol.upper()) in trusted_collections}
+    flagged -= trusted
+
     for t in txs:
         for l in t.legs:
-            if l.asset.key in flagged and not l.asset.spam:
-                l.asset = replace(l.asset, spam=True)
+            should = l.asset.key in flagged
+            if l.asset.spam != should:
+                l.asset = replace(l.asset, spam=should)
     return flagged
 
 

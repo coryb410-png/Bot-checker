@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import AsyncIterator
 
-from classifiers.spam import looks_like_scam
+from classifiers.spam import looks_like_scam, looks_like_scam_description
 from core.models import Asset, Chain, Leg, NormalizedTx, safe_image
 
 from .base import Http, env
@@ -245,5 +245,5 @@ def parse_das_asset(a: dict) -> dict:
         "image": safe_image(img),
         "compressed": compressed,
         # Scam airdrops (very often cNFTs) advertise links in their name or description
-        "spam": looks_like_scam(md.get("name")) or looks_like_scam(md.get("description")),
+        "spam": looks_like_scam(md.get("name")) or looks_like_scam_description(md.get("description")),
     }

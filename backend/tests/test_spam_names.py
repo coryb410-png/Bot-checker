@@ -118,3 +118,25 @@ def test_sns_resolution():
     assert asyncio.run(NameResolver(eth=object(), sns=sns).resolve("bonfida.sol")) == (Chain.SOLANA, owner)
     with pytest.raises(NameNotFound):
         asyncio.run(NameResolver(eth=object(), sns=sns).resolve("missing.sol"))
+
+
+def test_bought_collections_are_never_spam():
+    from core.models import Chain
+    sol = Asset(Chain.SOLANA, "SOL")
+    bought = Asset(Chain.SOLANA, "WGNETS", contract="w1", is_nft=True, token_id="w1", spam=True)   # DAS flagged
+    gifted = Asset(Chain.SOLANA, "WGNETS", contract="w2", is_nft=True, token_id="w2", spam=True)   # same collection
+    scam = Asset(Chain.SOLANA, "CLAIM", contract="s1", is_nft=True, token_id="s1", spam=True)
+    txs = [
+        NormalizedTx(Chain.SOLANA, "buy", T, "me", [Leg(sol, D(-1)), Leg(bought, D(1))], D("0.00001"), sol),
+        NormalizedTx(Chain.SOLANA, "gift", T, "me", [Leg(gifted, D(1))]),
+        NormalizedTx(Chain.SOLANA, "drop", T, "me", [Leg(scam, D(1))]),
+    ]
+    flagged = mark_spam(txs)
+    assert flagged == {scam.key}
+    assert [is_spam_tx(t) for t in txs] == [False, False, True]
+
+
+def test_links_alone_are_not_scams():
+    from classifiers.spam import looks_like_scam_description
+    assert not looks_like_scam_description("Wegen Genesis. Learn more at wegen.xyz")
+    assert looks_like_scam_description("You are eligible! Claim 500 USDC at sol-drop.xyz")

@@ -228,7 +228,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
                 {(sm.spam_hidden.transactions ?? 0) > 0 && (
                   <label className="row" style={{ gap: 6, fontSize: 14 }}>
                     <input type="checkbox" checked={showSpam} onChange={(e) => setShowSpam(e.target.checked)} style={{ width: "auto" }} />
-                    Show spam ({sm.spam_hidden.transactions})
+                    Show hidden ({sm.spam_hidden.transactions})
                   </label>
                 )}
               </div>
@@ -294,7 +294,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
             <span style={{ color: "var(--muted)", fontSize: 13 }}>
               {(sm.spam_hidden.transactions ?? 0) > 0 && !showSpam && <Monkey mood="shh" size="xs" />}
               {total ? `Showing ${txs.length.toLocaleString()} of ${total.toLocaleString()} transactions, newest first` : ""}
-              {(sm.spam_hidden.transactions ?? 0) > 0 && !showSpam ? ` · ${sm.spam_hidden.transactions} spam hidden` : ""}
+              {(sm.spam_hidden.transactions ?? 0) > 0 && !showSpam ? ` · ${sm.spam_hidden.transactions} hidden as likely spam` : ""}
             </span>
           </section>
         </>
