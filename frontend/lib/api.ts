@@ -104,23 +104,26 @@ export interface Floor { amount: string; currency: string; source: string; url: 
 export interface ValuePoint { date: string; value: string }
 export interface Performance { value_over_time: ValuePoint[]; value_basis: string }
 
+// ?wallet= limits a request to one address of the portfolio (a wallet tab)
+const inWallet = (w?: string | null, sep = "?") => (w ? `${sep}wallet=${encodeURIComponent(w)}` : "");
+
 export const api = {
   scan: (addresses: string[], method: Method, labels: Record<string, string> = {}) =>
     call<{ id: string }>("/api/wallets/scan", { method: "POST", body: JSON.stringify({ addresses, method, labels }) }),
   resolve: (name: string) =>
     call<{ name: string; chain: "ethereum" | "solana"; address: string }>(`/api/resolve?name=${encodeURIComponent(name.trim())}`),
   demo: (method: Method) => call<{ id: string }>(`/api/demo?method=${method}`, { method: "POST" }),
-  status: (id: string) => call<WalletStatus>(`/api/wallets/${id}`),
+  status: (id: string, wallet?: string | null) => call<WalletStatus>(`/api/wallets/${id}${inWallet(wallet)}`),
   refresh: (id: string) => call(`/api/wallets/${id}/refresh`, { method: "POST" }),
   remove: (id: string) => call(`/api/wallets/${id}`, { method: "DELETE" }),
-  transactions: (id: string, params: { type?: string; chain?: string; nft?: boolean; include_spam?: boolean; offset?: number; limit?: number }) => {
+  transactions: (id: string, params: { type?: string; chain?: string; nft?: boolean; include_spam?: boolean; wallet?: string; offset?: number; limit?: number }) => {
     const q = new URLSearchParams(
       Object.entries(params).filter(([, v]) => v !== undefined && v !== "" && v !== false).map(([k, v]) => [k, String(v)]),
     );
     return call<{ total: number; items: Tx[] }>(`/api/wallets/${id}/transactions?${q}`);
   },
-  holdings: (id: string) => call<Holding[]>(`/api/wallets/${id}/holdings`),
-  performance: (id: string) => call<Performance>(`/api/wallets/${id}/performance`),
+  holdings: (id: string, wallet?: string | null) => call<Holding[]>(`/api/wallets/${id}/holdings${inWallet(wallet)}`),
+  performance: (id: string, wallet?: string | null) => call<Performance>(`/api/wallets/${id}/performance${inWallet(wallet)}`),
   pnl: (id: string, method: Method) => call(`/api/wallets/${id}/pnl?method=${method}`),
   setCost: (id: string, tx_hash: string, total_cost_usd: number) =>
     call(`/api/wallets/${id}/cost-basis`, { method: "PUT", body: JSON.stringify({ tx_hash, total_cost_usd }) }),

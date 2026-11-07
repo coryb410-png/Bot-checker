@@ -88,7 +88,7 @@ def build_demo(pid: str, method: Method = Method.FIFO) -> Portfolio:
         _tx("0xexample09", "2025-09-02", Chain.ETHEREUM, ETH_ADDR, [L(FOX, -1, 8400), L(ETH, 2, 8400)], "0.002", "8.4", "OPENSEA"),
         _tx("example-btc-10", "2025-10-27", Chain.BITCOIN, BTC_ADDR, [L(BTC, "-0.1", 11400, "bc1qfriend")], "0.00002", "2.28"),
         _tx("0xexample11", "2025-11-10", Chain.ETHEREUM, ETH_ADDR, [L(PEPE, -90000000, 630), L(USDC, 630, 630)], "0.003", "6.6", "UNISWAP"),
-        _tx("0xexample12", "2026-01-22", Chain.ETHEREUM, ETH_COLD, [L(ETH, -1, 3300), L(USDC, 3300, 3300)], "0.002", "6.6", "UNISWAP"),
+        _tx("0xexample12", "2026-01-22", Chain.ETHEREUM, ETH_COLD, [L(ETH, "-0.2", 660), L(USDC, 660, 660)], "0.002", "6.6", "UNISWAP"),
         _tx("0xexample13", "2026-03-05", Chain.ETHEREUM, ETH_ADDR, [], "0.001", 4, "AAVE", "0xaave"),
         _tx("0xexample15", "2026-08-12", Chain.ETHEREUM, ETH_ADDR,
             [Leg(SCAM, D(5000), counterparty="0xspammer")]),     # unsolicited airdrop: hidden as spam

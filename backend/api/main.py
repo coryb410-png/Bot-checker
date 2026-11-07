@@ -27,7 +27,7 @@ from portfolio.highlights import compute_highlights
 from portfolio.history import value_history
 from pricing.floors import collection_key
 from portfolio.pnl import Method
-from portfolio.service import Store, progress_key, recompute, run_scan
+from portfolio.service import Store, progress_key, recompute, run_scan, wallet_view
 from pricing.coingecko import PriceService
 
 app = FastAPI(title="ChainScope API", version="0.1.0")
@@ -161,14 +161,27 @@ async def refresh(pid: str, req: Request):
     return {"id": p.id, "status": "queued"}
 
 
-@app.get("/api/wallets/{pid}")
-async def wallet(pid: str):
+def _scoped(pid: str, wallet: str | None):
+    """The whole portfolio, or one of its addresses when `wallet` is given."""
     p = _portfolio(pid)
+    if not wallet:
+        return p
+    try:
+        return wallet_view(p, wallet)
+    except KeyError:
+        raise HTTPException(404, "That address isn't part of this portfolio.")
+
+
+@app.get("/api/wallets/{pid}")
+async def wallet(pid: str, wallet: str | None = None):
+    whole = _portfolio(pid)
+    p = _scoped(pid, wallet) if whole.report else whole
     r = p.report
     return {
         "id": p.id, "status": p.status, "error": p.error, "method": p.method, "demo": p.demo,
         "addresses": [{"chain": c.value, "address": a, "label": p.labels.get(a),
-                       "scanned": p.progress.get(progress_key(c, a), 0)} for c, a in p.addresses],
+                       "scanned": p.progress.get(progress_key(c, a), 0)} for c, a in whole.addresses],
+        "wallet": wallet,
         "updated_at": p.updated_at,
         "network_errors": [{"chain": k.split(":", 1)[0], "address": k.split(":", 1)[1], "error": v}
                            for k, v in p.network_errors.items()],
@@ -198,9 +211,9 @@ async def remove(pid: str):
 
 @app.get("/api/wallets/{pid}/transactions")
 async def transactions(pid: str, type: str | None = None, chain: str | None = None,
-                       nft: bool = False, include_spam: bool = False,
+                       nft: bool = False, include_spam: bool = False, wallet: str | None = None,
                        offset: int = 0, limit: int = Query(100, le=500)):
-    p = _portfolio(pid)
+    p = _scoped(pid, wallet)
     try:
         wanted = {TxType(x.strip()) for x in type.split(",") if x.strip()} if type else set()
     except ValueError:
@@ -233,8 +246,8 @@ async def transaction(tx_hash: str, portfolio: str):
 
 
 @app.get("/api/wallets/{pid}/holdings")
-async def holdings(pid: str):
-    return _holdings_json(_portfolio(pid))
+async def holdings(pid: str, wallet: str | None = None):
+    return _holdings_json(_scoped(pid, wallet))
 
 
 def _holdings_json(p) -> list[dict]:
@@ -295,9 +308,9 @@ async def set_cost(pid: str, body: CostRequest):
 
 
 @app.get("/api/wallets/{pid}/performance")
-async def performance(pid: str):
+async def performance(pid: str, wallet: str | None = None):
     """Daily value of coins and tokens, plus running realized P&L."""
-    p = _portfolio(pid)
+    p = _scoped(pid, wallet)
     if not p.report:
         raise HTTPException(409, "Scan still running.")
     if p.value_history is None:

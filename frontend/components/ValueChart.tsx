@@ -37,8 +37,8 @@ const short = (n: number) =>
 const fmtDay = (d: string, withYear = false) =>
   new Date(d + "T12:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", ...(withYear ? { year: "numeric" } : {}) });
 
-export default function ValueChart({ id, refreshKey, range, onRange }: {
-  id: string; refreshKey?: string | null; range: number; onRange: (d: number) => void;
+export default function ValueChart({ id, wallet, refreshKey, range, onRange }: {
+  id: string; wallet?: string | null; refreshKey?: string | null; range: number; onRange: (d: number) => void;
 }) {
   const [points, setPoints] = useState<ValuePoint[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -49,9 +49,9 @@ export default function ValueChart({ id, refreshKey, range, onRange }: {
   useEffect(() => {
     let stop = false;
     setPoints(null); setFailed(false);
-    api.performance(id).then((p) => !stop && setPoints(p.value_over_time ?? [])).catch(() => !stop && setFailed(true));
+    api.performance(id, wallet).then((p) => !stop && setPoints(p.value_over_time ?? [])).catch(() => !stop && setFailed(true));
     return () => { stop = true; };
-  }, [id, refreshKey]);
+  }, [id, wallet, refreshKey]);
 
   useEffect(() => {
     const el = box.current;

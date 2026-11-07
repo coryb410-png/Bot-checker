@@ -211,3 +211,26 @@ def test_highlights_follow_the_date_range():
         assert h["trade_count"] <= all_time["trade_count"] and h["flip_count"] <= all_time["flip_count"]
     far_future = compute_highlights(p, now + timedelta(days=1))
     assert far_future["best_trade"] is None and far_future["trade_count"] == 0
+
+
+def test_wallet_tabs_split_the_portfolio():
+    from decimal import Decimal as D
+    from core.models import TxType
+    from portfolio.demo import build_demo
+    from portfolio.service import wallet_view
+    p = build_demo("demo-w")
+    views = [wallet_view(p, a) for _, a in p.addresses]
+    # Every transaction belongs to exactly one tab; values add up to the whole
+    assert sum(len(v.txs) for v in views) == len(p.txs)
+    assert sum((v.report.portfolio_value for v in views), D(0)) == p.report.portfolio_value
+    # A move between your own wallets is a transfer out/in inside a single tab...
+    cold = wallet_view(p, "0x000000000000000000000000000000000000C01D")   # any case works for 0x
+    assert cold.addresses == [a for a in p.addresses if a[1].endswith("c01d")]
+    assert cold.report is wallet_view(p, "0x000000000000000000000000000000000000c01d").report   # cached
+    # ...but the combined view keeps calling it an internal transfer
+    assert any(t.tx_type == TxType.INTERNAL_TRANSFER for t in cold.txs)
+    try:
+        wallet_view(p, "0xnot-in-this-portfolio")
+        raise AssertionError("expected KeyError")
+    except KeyError:
+        pass

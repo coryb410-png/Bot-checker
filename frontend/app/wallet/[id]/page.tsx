@@ -19,6 +19,20 @@ const TYPES: [string, string][] = [
 ];
 const PAGE = 250;
 
+// One tab per address. An 0x address is scanned on Ethereum and Robinhood
+// Chain, so it gets a single tab covering both.
+type WalletTab = { address: string; label: string | null; chains: Chain[]; scanned: number };
+function walletTabs(addresses: WalletStatus["addresses"]): WalletTab[] {
+  const out: WalletTab[] = [];
+  for (const a of addresses) {
+    const same = out.find((t) => t.address === a.address || (a.address.startsWith("0x") && t.address.toLowerCase() === a.address.toLowerCase()));
+    if (same) { same.chains.push(a.chain as Chain); same.scanned += a.scanned; same.label ??= a.label; }
+    else out.push({ address: a.address, label: a.label, chains: [a.chain as Chain], scanned: a.scanned });
+  }
+  return out;
+}
+const chainsLabel = (cs: Chain[]) => cs.map((c) => (c === "robinhood" ? "Robinhood" : CHAIN_LABEL[c])).join(" + ");
+
 export default function WalletPage({ params }: { params: { id: string } }) {
   const id = params.id;
   const [st, setSt] = useState<WalletStatus | null>(null);
@@ -32,26 +46,30 @@ export default function WalletPage({ params }: { params: { id: string } }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sentinel = useRef<HTMLLIElement | null>(null);
-  const filterKey = `${type}|${chain}|${nftOnly}|${showSpam}`;
+  const [wallet, setWallet] = useState<string | null>(null);   // null = all wallets
+  const walletRef = useRef<string | null>(null);
+  walletRef.current = wallet;
+  const filterKey = `${type}|${chain}|${nftOnly}|${showSpam}|${wallet ?? ""}`;
   const activeKey = useRef(filterKey);
 
   // First page plus holdings; the rest of the history streams in below.
   const loadData = useCallback(async () => {
     activeKey.current = filterKey;
-    const [t, h] = await Promise.all([api.transactions(id, { type, chain, nft: nftOnly, include_spam: showSpam, offset: 0, limit: PAGE }), api.holdings(id)]);
+    const w = wallet ?? undefined;
+    const [t, h] = await Promise.all([api.transactions(id, { type, chain, nft: nftOnly, include_spam: showSpam, wallet: w, offset: 0, limit: PAGE }), api.holdings(id, wallet)]);
     if (activeKey.current !== filterKey) return;
     setTxs(t.items); setTotal(t.total); setHoldings(h);
-  }, [id, type, chain, nftOnly, showSpam, filterKey]);
+  }, [id, type, chain, nftOnly, showSpam, wallet, filterKey]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || txs.length >= total) return;
     setLoadingMore(true);
     const key = filterKey;
     try {
-      const t = await api.transactions(id, { type, chain, nft: nftOnly, include_spam: showSpam, offset: txs.length, limit: PAGE });
+      const t = await api.transactions(id, { type, chain, nft: nftOnly, include_spam: showSpam, wallet: wallet ?? undefined, offset: txs.length, limit: PAGE });
       if (activeKey.current === key) setTxs((prev) => [...prev, ...t.items]);
     } finally { setLoadingMore(false); }
-  }, [id, type, chain, nftOnly, showSpam, filterKey, txs.length, total, loadingMore]);
+  }, [id, type, chain, nftOnly, showSpam, wallet, filterKey, txs.length, total, loadingMore]);
 
   // Keep loading as the reader nears the end, until every transaction is shown
   useEffect(() => {
@@ -66,11 +84,14 @@ export default function WalletPage({ params }: { params: { id: string } }) {
   // wallet has been read; dollar values and floors fill in when they arrive.
   const loadedAt = useRef<string | null>(null);
   const [range, setRange] = useState(90);   // shared by the value chart and the highlights
+  // Runs again whenever a filter or the wallet tab changes (loadData changes),
+  // so that wallet's numbers and activity are fetched fresh.
   useEffect(() => {
     let stop = false;
+    loadedAt.current = null;
     async function tick() {
       try {
-        const s = await api.status(id);
+        const s = await api.status(id, walletRef.current);
         if (stop) return;
         setSt(s);
         const hasData = s.status === "pricing" || s.status === "valuing" || s.status === "ready";
@@ -84,7 +105,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
 
   async function changeMethod(m: Method) {
     await api.pnl(id, m);
-    setSt(await api.status(id));
+    setSt(await api.status(id, wallet));
     await loadData();
   }
 
@@ -93,7 +114,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
     const v = Number(el?.value);
     if (!el || !Number.isFinite(v) || v < 0) return;
     await api.setCost(id, hash, v);
-    setSt(await api.status(id));
+    setSt(await api.status(id, wallet));
     await loadData();
   }
 
@@ -108,6 +129,8 @@ export default function WalletPage({ params }: { params: { id: string } }) {
   const sm = st.summary;
   const scanning = st.status !== "ready" && st.status !== "error";
   const filling = scanning && !!sm && (st.status === "pricing" || st.status === "valuing");
+  const tabs = walletTabs(st.addresses);
+  const current = tabs.find((t) => t.address === wallet) ?? null;
 
   return (
     <>
@@ -129,6 +152,21 @@ export default function WalletPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      {tabs.length > 1 ? (
+        <nav className="wtabs" role="tablist" aria-label="Wallets">
+          <button type="button" role="tab" aria-selected={wallet === null} onClick={() => setWallet(null)}>
+            <strong>All wallets</strong>
+            <span className="sub">{tabs.length} addresses</span>
+          </button>
+          {tabs.map((t) => (
+            <button key={t.address} type="button" role="tab" aria-selected={wallet === t.address} onClick={() => setWallet(t.address)}>
+              <span className={`chip ${t.chains[0]}`}>{chainsLabel(t.chains)}</span>
+              <span className="mono addr">{t.label ?? shorten(t.address, 5)}</span>
+              {scanning && <span className="sub">{t.scanned.toLocaleString()} txs</span>}
+            </button>
+          ))}
+        </nav>
+      ) : (
       <section className="row">
         {st.addresses.map((a) => (
           <span key={a.address} className="row" style={{ gap: 6 }}>
@@ -139,6 +177,12 @@ export default function WalletPage({ params }: { params: { id: string } }) {
           </span>
         ))}
       </section>
+      )}
+      {current && (
+        <p style={{ margin: "-8px 0 0", color: "var(--muted)", fontSize: 13 }}>
+          Showing <span className="mono">{current.label ?? shorten(current.address, 6)}</span> only. Coins it received from your other wallets count as transfers in here, with no purchase price; the All wallets tab carries what you paid across.
+        </p>
+      )}
 
       {filling && (
         <div className="panel row" role="status" style={{ gap: 12, flexWrap: "nowrap", background: "var(--sunk)" }}>
@@ -186,7 +230,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
             <div className="panel stat"><span className="eyebrow">Fees paid</span><div className="v">{money(sm.fees_paid)}</div><div className="s">{sm.assets_sold} assets sold</div></div>
           </section>
 
-          {st.status === "ready" && <ValueChart id={id} refreshKey={st.updated_at} range={range} onRange={setRange} />}
+          {st.status === "ready" && <ValueChart id={id} wallet={wallet} refreshKey={st.updated_at} range={range} onRange={setRange} />}
 
           <Highlights all={sm.highlights} byRange={sm.highlights_by_range} range={range} onRange={setRange} />
 

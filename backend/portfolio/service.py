@@ -46,6 +46,8 @@ class Portfolio:
     floors: dict = field(default_factory=dict)        # collection key -> Floor
     native_usd: dict = field(default_factory=dict)    # "SOL"/"ETH" -> current USD price
     value_history: list | None = None                 # cached chart points
+    nft_owner: dict = field(default_factory=dict)     # untracked NFT key -> owning address
+    views: dict = field(default_factory=dict)         # address -> (report it was built from, view)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime | None = None
 
@@ -190,8 +192,9 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
             return []
 
     wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM)]
-    for owned in await asyncio.gather(*(owned_by(c, a) for c, a in wallets)):   # all wallets at once
+    for (_, addr), owned in zip(wallets, await asyncio.gather(*(owned_by(c, a) for c, a in wallets))):
         owned_by_key.update({a.key: a for a in owned})
+        p.nft_owner.update({a.key: addr for a in owned})
         extra += [a for a in owned if a.key not in held_keys and not a.spam]
     # Fill in photos/names the history lookup couldn't get for NFTs still owned
     for t in p.txs:
@@ -247,3 +250,36 @@ def _held_assets(p: Portfolio):
             if not l.asset.is_nft and not l.asset.spam:
                 seen[l.asset.key] = l.asset
     return list(seen.values())
+
+
+def same_address(a: str, b: str) -> bool:
+    return a == b or (a.startswith("0x") and a.lower() == b.lower())
+
+
+def wallet_view(p: Portfolio, wallet: str) -> Portfolio:
+    """The portfolio as if only `wallet` had been scanned: its own
+    transactions, holdings, NFTs and profit/loss. Moves to or from your other
+    wallets count as transfers out/in here (the combined view nets them out).
+    Built on demand and reused until the portfolio's numbers change."""
+    import copy
+    addresses = [(c, a) for c, a in p.addresses if same_address(a, wallet)]
+    if not addresses:
+        raise KeyError(wallet)
+    key = addresses[0][1].lower() if wallet.startswith("0x") else addresses[0][1]
+    hit = p.views.get(key)
+    if hit and hit[0] is p.report:
+        return hit[1]
+
+    v = copy.copy(p)
+    v.addresses = addresses
+    v.txs = [t for t in p.txs if same_address(t.wallet, wallet)]
+    v.untracked_nfts = [a for a in p.untracked_nfts if same_address(p.nft_owner.get(a.key, ""), wallet)]
+    v.value_history, v.views = None, {}
+    if p.report:
+        own = {a for _, a in addresses} | {a.lower() for _, a in addresses}
+        clean = [replace(t, legs=without_spam(t)) for t in v.txs if not is_spam_tx(t)]
+        classify_all(clean, own)   # copies only: the combined view keeps its labels
+        prices = {k: a.current_price for k, a in p.report.assets.items() if a.current_price is not None}
+        v.report = compute_pnl(clean, p.method, prices, p.manual_costs)
+    p.views[key] = (p.report, v)
+    return v
