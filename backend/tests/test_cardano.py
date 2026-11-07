@@ -145,3 +145,37 @@ def test_owned_nfts_and_handles():
 def test_handle_names_are_recognised():
     from core.names import is_name
     assert is_name("$madboy") and is_name("madboy.sol") and not is_name("$") and not is_name("madboy")
+
+
+def test_nft_photo_layouts():
+    sc = CardanoScanner(http=FakeKoios())
+    pol = "b" * 56
+    cid = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG"
+
+    def nft(name_hex, **info):
+        unit = pol + name_hex
+        sc._assets[unit] = {"policy_id": pol, "asset_name": name_hex, "total_supply": "1", **info}
+        return sc.asset(unit)
+
+    # Bare IPFS ID, wrapped as {"key": "721", "json": ...}
+    a = nft("4275643031", asset_name_ascii="Bud01",
+            minting_tx_metadata={"key": "721", "json": {pol: {"Bud01": {"name": "Bud 01", "image": cid}}}})
+    assert (a.name, a.image) == ("Bud 01", f"https://ipfs.io/ipfs/{cid}")
+    # CIP-25 v2: policy and asset keys in hex; image split into chunks
+    b = nft("4275643032", minting_tx_metadata={"721": {pol.upper(): {"4275643032": {
+        "name": "Bud 02", "image": ["ipfs://", cid]}}, "version": 2}})
+    assert (b.name, b.image) == ("Bud 02", f"https://ipfs.io/ipfs/{cid}")
+    # Only a files list
+    c = nft("4275643033", asset_name_ascii="Bud03", minting_tx_metadata={"721": {pol: {"Bud03": {
+        "name": "Bud 03", "files": [{"mediaType": "image/png", "src": "ar://abc123"}]}}}})
+    assert c.image == "https://arweave.net/abc123"
+    # CIP-68 datum with the image as a list of byte chunks
+    hexs = lambda t: t.encode().hex()
+    d = nft("000de140" + hexs("Hosky1"), cip68_metadata={"100": {"constructor": 0, "fields": [{"map": [
+        {"k": {"bytes": hexs("name")}, "v": {"bytes": hexs("Hosky #1")}},
+        {"k": {"bytes": hexs("image")}, "v": {"list": [{"bytes": hexs("ipfs://")}, {"bytes": hexs(cid)}]}}]}]}})
+    assert (d.name, d.image) == ("Hosky #1", f"https://ipfs.io/ipfs/{cid}")
+    # On-chain data: images are never passed through
+    e = nft("4275643035", asset_name_ascii="Bud05", minting_tx_metadata={"721": {pol: {"Bud05": {
+        "name": "Bud 05", "image": "data:image/svg+xml;base64,PHN2Zz4="}}}})
+    assert e.image is None and e.name == "Bud 05"

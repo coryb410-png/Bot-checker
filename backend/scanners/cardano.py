@@ -12,6 +12,7 @@ withdrawn in a transaction are reported separately as income.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -49,6 +50,45 @@ def _cip68_display(hex_name: str) -> str:
     if hex_name[:8] in ("000de140", "0014df10", "000643b0"):
         return hex_name[8:]
     return hex_name
+
+
+_CID = re.compile(r"^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})(/.*)?$")
+
+
+def _clean_image(v) -> str | None:
+    """Image link from metadata: ipfs://, ar://, https:// or a bare IPFS ID
+    (common on Cardano). On-chain data: images are skipped."""
+    url = _join(v)
+    if not url:
+        return None
+    url = url.strip()
+    if _CID.match(url):
+        url = "ipfs://" + url
+    return safe_image(url)
+
+
+def _nft_image(entry: dict) -> str | None:
+    img = _clean_image(entry.get("image"))
+    if img:
+        return img
+    for f in entry.get("files") or []:   # some collections only list files
+        if isinstance(f, dict) and str(f.get("mediaType", "image")).startswith("image"):
+            img = _clean_image(f.get("src"))
+            if img:
+                return img
+    return None
+
+
+def _datum_text(v) -> str | None:
+    """A CIP-68 datum value as text: bytes, or a list of byte chunks."""
+    if not isinstance(v, dict):
+        return None
+    if "bytes" in v:
+        return _ascii(v["bytes"])
+    if isinstance(v.get("list"), list):
+        parts = [_ascii((x or {}).get("bytes", "")) or "" for x in v["list"]]
+        return "".join(parts) or None
+    return None
 
 
 class CardanoScanner:
@@ -143,7 +183,7 @@ class CardanoScanner:
             meta = self._nft_meta(info, policy, ascii_name)
             name = meta.get("name") or ascii_name or info.get("fingerprint") or unit[:12]
             return Asset(Chain.CARDANO, (ascii_name or "NFT")[:16], contract=unit, decimals=0, is_nft=True,
-                         token_id=unit, name=name, image=safe_image(_join(meta.get("image"))), collection=policy)
+                         token_id=unit, name=name, image=meta.get("image"), collection=policy)
         decimals = reg.get("decimals")
         if decimals is None:
             decimals = decimals_hint if decimals_hint is not None else 0
@@ -153,26 +193,42 @@ class CardanoScanner:
 
     @staticmethod
     def _nft_meta(info: dict, policy: str, ascii_name: str | None) -> dict:
-        # CIP-25: minting metadata label 721 -> policy -> asset name -> {name, image}
-        m = (info.get("minting_tx_metadata") or {}).get("721") or {}
-        by_policy = m.get(policy) or {}
-        if isinstance(by_policy, dict):
-            entry = by_policy.get(ascii_name or "") or (next(iter(by_policy.values()), {}) if len(by_policy) == 1 else {})
-            if isinstance(entry, dict) and entry:
-                return entry
-        # CIP-68: reference datum fields
+        """Name and image for an NFT, from whichever layout its metadata uses:
+        CIP-25 (label 721; keys as text or hex; v1 or v2) or CIP-68 (datum)."""
+        name_hex = (info.get("asset_name") or "").lower()
+        wanted = {k for k in (ascii_name, name_hex, _ascii(_cip68_display(name_hex)), _cip68_display(name_hex)) if k}
+
+        m = info.get("minting_tx_metadata")
+        # Koios has returned {"721": {...}}, {"key": "721", "json": {...}} and lists of those
+        if isinstance(m, list):
+            m = next((x for x in m if str((x or {}).get("key")) == "721"), {}) or {}
+        if isinstance(m, dict) and "json" in m and str(m.get("key")) == "721":
+            m = {"721": m["json"]}
+        cip25 = (m or {}).get("721") if isinstance(m, dict) else None
+        if isinstance(cip25, dict):
+            by_policy = next((v for k, v in cip25.items() if str(k).lower() == policy.lower()), None)
+            if isinstance(by_policy, dict):
+                entry = next((v for k, v in by_policy.items() if k in wanted or str(k).lower() in wanted), None)
+                if entry is None:
+                    entries = [v for v in by_policy.values() if isinstance(v, dict)]
+                    entry = entries[0] if len(entries) == 1 else None
+                if isinstance(entry, dict):
+                    return {"name": _join(entry.get("name")), "image": _nft_image(entry)}
+
+        # CIP-68: reference NFT datum, a map of byte-string keys to values
         c = info.get("cip68_metadata") or {}
-        for v in c.values() if isinstance(c, dict) else []:
-            fields = (v or {}).get("fields") if isinstance(v, dict) else None
-            if fields and isinstance(fields, list) and isinstance(fields[0], dict):
-                out = {}
-                for kv in fields[0].get("map") or []:
-                    k = _ascii((kv.get("k") or {}).get("bytes", ""))
-                    val = (kv.get("v") or {}).get("bytes")
-                    if k in ("name", "image") and val:
-                        out[k] = _ascii(val)
-                if out:
-                    return out
+        for v in (c.values() if isinstance(c, dict) else []):
+            fields = v.get("fields") if isinstance(v, dict) else None
+            first = fields[0] if isinstance(fields, list) and fields and isinstance(fields[0], dict) else {}
+            out = {}
+            for kv in first.get("map") or []:
+                k = _ascii(((kv or {}).get("k") or {}).get("bytes", ""))
+                val = _datum_text((kv or {}).get("v"))
+                if k in ("name", "image") and val:
+                    out[k] = val
+            if out:
+                out["image"] = _clean_image(out.get("image"))
+                return out
         return {}
 
     def normalize(self, raw: dict, wallet: str, stake: str | None, addrs: set[str]) -> list[NormalizedTx]:
