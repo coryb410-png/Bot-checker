@@ -405,3 +405,56 @@ def test_eth_held_nfts_and_image_refresh(monkeypatch):
     got = tx.legs[0].asset
     assert (got.name, got.image) == ("WEThBandit #5", "https://ipfs.io/ipfs/Qm/5.png")
     assert ("/getNFTMetadata", {"contractAddress": "0xabc", "tokenId": "5", "refreshCache": "true"}) in nft.calls
+
+
+def test_l2_networks_use_their_own_alchemy_endpoint_and_coin(monkeypatch):
+    import asyncio
+    monkeypatch.setenv("ALCHEMY_API_KEY", "k")
+    from core.models import Chain
+    from scanners.ethereum import NETWORKS, EthereumScanner
+
+    class Rpc:
+        def __init__(self):
+            self.calls = []
+
+        async def post(self, url, json=None):
+            self.calls.append(json)
+            if isinstance(json, list):   # receipts
+                return [{"id": r["id"], "result": {"from": "0xme", "to": "0xdex", "gasUsed": "0x5208",
+                                                   "effectiveGasPrice": "0x3b9aca00", "status": "0x1"}} for r in json]
+            p = json["params"][0]
+            if "fromAddress" in p:
+                return {"result": {"transfers": [
+                    {"hash": "0xa", "category": "external", "from": "0xme", "to": "0xdex", "value": 1,
+                     "rawContract": {"value": hex(10**18)}, "metadata": {"blockTimestamp": "2026-01-01T00:00:00Z"}}]}}
+            return {"result": {"transfers": [
+                {"hash": "0xa", "category": "erc20", "from": "0xdex", "to": "0xme", "asset": "USDC",
+                 "rawContract": {"address": "0xUSDC", "value": hex(2500 * 10**6), "decimal": "0x6"},
+                 "metadata": {"blockTimestamp": "2026-01-01T00:00:00Z"}}]}}
+
+    class Nft:
+        async def post(self, url, json=None): return {"nfts": []}
+        async def get(self, url, params=None): return {}
+
+    rpc = Rpc()
+    sc = EthereumScanner(http=rpc, nft_http=Nft(), network=Chain.POLYGON)
+    async def go():
+        return [t async for t in sc.scan("0xME")]
+    (tx,) = asyncio.run(go())
+    assert tx.chain == Chain.POLYGON and tx.fee_asset.symbol == "POL" and tx.fee_asset.coingecko_id == "polygon-ecosystem-token"
+    legs = {l.asset.symbol: (l.asset.chain, l.amount) for l in tx.legs}
+    assert legs == {"POL": (Chain.POLYGON, -1), "USDC": (Chain.POLYGON, 2500)}
+    sent = rpc.calls[0]["params"][0]
+    assert "internal" in sent["category"] and "specialnft" not in sent["category"]
+    # Arbitrum has no internal transfers in Alchemy; Base gets its own endpoint
+    assert "internal" not in NETWORKS[Chain.ARBITRUM].categories
+    assert NETWORKS[Chain.BASE].alchemy == "base-mainnet" and NETWORKS[Chain.BASE].native.symbol == "ETH"
+
+
+def test_0x_address_is_scanned_on_every_evm_network():
+    from core.models import Chain
+    from portfolio.pnl import Method
+    from portfolio.service import Store
+    p = Store().create(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], Method.FIFO)
+    assert {c for c, _ in p.addresses} == {Chain.ETHEREUM, Chain.ROBINHOOD, Chain.BASE, Chain.ARBITRUM,
+                                           Chain.OPTIMISM, Chain.POLYGON}

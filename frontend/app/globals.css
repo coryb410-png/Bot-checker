@@ -28,6 +28,10 @@
   --ada: #7c9bff;
   --xrp: #c3ccd6;
   --doge: #d9b846;
+  --base: #5b8dff;
+  --arb: #6fb6ff;
+  --op: #ff8fa3;
+  --poly: #b48cff;
   --display: "Bungee", Impact, "Arial Black", sans-serif;
   --body: "Rubik", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -64,7 +68,8 @@ input::placeholder { color: var(--muted); opacity: .8; }
 .chip { display: inline-flex; align-items: center; gap: 6px; font: 600 11px/1 var(--mono); letter-spacing: 0.06em;
   text-transform: uppercase; padding: 5px 8px; border-radius: 999px; background: var(--sunk); color: var(--muted); }
 .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.chip.bitcoin { color: var(--btc); } .chip.ethereum { color: var(--eth); } .chip.solana { color: var(--sol); } .chip.robinhood { color: var(--hood); } .chip.cardano { color: var(--ada); } .chip.xrp { color: var(--xrp); } .chip.dogecoin { color: var(--doge); }
+.chip.bitcoin { color: var(--btc); } .chip.ethereum { color: var(--eth); } .chip.solana { color: var(--sol); } .chip.robinhood { color: var(--hood); } .chip.cardano { color: var(--ada); } .chip.xrp { color: var(--xrp); } .chip.dogecoin { color: var(--doge); } .chip.base { color: var(--base); }
+.chip.arbitrum { color: var(--arb); } .chip.optimism { color: var(--op); } .chip.polygon { color: var(--poly); }
 .gain { color: var(--gain); } .loss { color: var(--loss); } .warn { color: var(--warn); }
 .err { color: var(--loss); font-size: 14px; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
@@ -166,7 +171,8 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 .nets .tk { font: 700 11px/1 var(--mono); letter-spacing: .06em; color: var(--gold-ink); padding: 3px 6px; border-radius: 6px; background: var(--gold); }
 .nets .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); }
 .nets .bitcoin { --c: var(--btc); } .nets .ethereum { --c: var(--eth); } .nets .solana { --c: var(--sol); }
-.nets .cardano { --c: var(--ada); } .nets .xrp { --c: var(--xrp); } .nets .dogecoin { --c: var(--doge); } .nets .robinhood { --c: var(--hood); }
+.nets .cardano { --c: var(--ada); } .nets .xrp { --c: var(--xrp); } .nets .dogecoin { --c: var(--doge); }
+.nets .evm { --c: var(--base); } .nets .evm strong { font-weight: 500; font-size: 13px; } .nets .robinhood { --c: var(--hood); }
 @media (prefers-reduced-motion: reduce) { .nets li { transition: none; } .nets li:hover { transform: none; } }
 @media (max-width: 520px) { .nets li { font-size: 13px; padding: 6px 10px 6px 8px; } }
 

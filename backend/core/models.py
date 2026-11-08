@@ -20,6 +20,10 @@ class Chain(str, Enum):
     CARDANO = "cardano"
     XRP = "xrp"            # XRP Ledger
     DOGECOIN = "dogecoin"
+    BASE = "base"             # Ethereum L2s: the same 0x address is scanned on each
+    ARBITRUM = "arbitrum"
+    OPTIMISM = "optimism"
+    POLYGON = "polygon"
 
 
 class TxType(str, Enum):

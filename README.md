@@ -175,3 +175,11 @@ but tax treatment varies by country.
 - History comes from electrs-dogecoin (`DOGE_ESPLORA_URL`), the Dogecoin port of the explorer API used for Bitcoin, which needs no key. If it can't be reached, scans switch to BlockCypher automatically; set `BLOCKCYPHER_TOKEN` (free) for more headroom.
 - DOGE is priced through CoinGecko, with full history, profit/loss, charts and highlights like every other network.
 - Doginals (Dogecoin NFTs) the wallet holds appear in the NFT gallery when `MAESTRO_API_KEY` is set (free Maestro account). Image inscriptions are shown, while text ones such as DRC-20 token transfers are skipped. Each image loads from a public Doginals explorer (`DOGINALS_CONTENT_URL`). Doginals have no floor price yet.
+
+## API for apps
+
+- The stable, versioned API lives at `/api/v1/…`. The full reference for app developers is in [docs/API.md](docs/API.md), with interactive docs at `/api/docs`.
+- Calls are rate limited per person: 240 a minute, and 12 new scans an hour. Partner apps sending an `X-API-Key` from `API_CLIENT_KEYS` get 20× more. Over the limit, the API answers 429 with a `Retry-After` header and a friendly message.
+- The website's proxy passes each visitor's IP, signed with `PROXY_SHARED_SECRET` (set the same value on both services), so website visitors are limited individually rather than as one user.
+- `CORS_ORIGINS` lists other websites allowed to call the API from a browser. Native apps and server-to-server calls don't need it.
+- Base, Arbitrum, Optimism and Polygon are scanned automatically for every 0x address, with the same `ALCHEMY_API_KEY`. Each network must be enabled for that key's app in the Alchemy dashboard.

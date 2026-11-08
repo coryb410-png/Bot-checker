@@ -18,9 +18,14 @@ async function forward(req: NextRequest, { params }: { params: { path: string[] 
   }
   const url = `${BACKEND}/api/${params.path.map(encodeURIComponent).join("/")}${req.nextUrl.search}`;
   const headers: Record<string, string> = { "content-type": req.headers.get("content-type") ?? "application/json" };
-  // Pass the visitor's IP in our own header (hosts rewrite x-forwarded-for)
-  const ip = (req.headers.get("x-forwarded-for") ?? req.ip ?? "").split(",")[0].trim();
+  // Tell the backend who the visitor is, for per-person rate limits. The last
+  // X-Forwarded-For entry is the one Render's edge added (earlier ones can be
+  // forged by the caller), and the shared secret proves the request came from
+  // this site, so nobody else can claim to be passing visitors' addresses.
+  const hops = (req.headers.get("x-forwarded-for") ?? "").split(",").map((h) => h.trim()).filter(Boolean);
+  const ip = hops[hops.length - 1] ?? req.ip ?? "";
   if (ip) headers["x-chainscope-client"] = ip;
+  if (process.env.PROXY_SHARED_SECRET) headers["x-chainscope-proxy-key"] = process.env.PROXY_SHARED_SECRET;
 
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.text();
   try {
@@ -37,10 +42,10 @@ async function forward(req: NextRequest, { params }: { params: { path: string[] 
         { status: r.status, headers: WAKING_HEADERS },
       );
     }
-    return new Response(r.status === 204 ? null : text, {
-      status: r.status,
-      headers: { "content-type": r.headers.get("content-type") ?? "application/json" },
-    });
+    const out: Record<string, string> = { "content-type": r.headers.get("content-type") ?? "application/json" };
+    const retry = r.headers.get("retry-after");
+    if (retry) out["retry-after"] = retry;   // "slow down" replies say when to try again
+    return new Response(r.status === 204 ? null : text, { status: r.status, headers: out });
   } catch (e) {
     console.error(`[proxy] ${req.method} ${url} failed:`, e);
     return Response.json(

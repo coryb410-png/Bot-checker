@@ -20,8 +20,11 @@ from scanners.base import Http, ProviderError, env
 
 from .cache import Cache
 
-PLATFORM = {Chain.ETHEREUM: "ethereum", Chain.SOLANA: "solana", Chain.CARDANO: "cardano", Chain.XRP: "xrp"}
-NATIVE_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "ADA": "cardano", "XRP": "ripple", "DOGE": "dogecoin"}
+PLATFORM = {Chain.ETHEREUM: "ethereum", Chain.SOLANA: "solana", Chain.CARDANO: "cardano", Chain.XRP: "xrp",
+            Chain.BASE: "base", Chain.ARBITRUM: "arbitrum-one", Chain.OPTIMISM: "optimistic-ethereum",
+            Chain.POLYGON: "polygon-pos"}
+NATIVE_IDS = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "ADA": "cardano", "XRP": "ripple", "DOGE": "dogecoin",
+              "POL": "polygon-ecosystem-token"}
 log = logging.getLogger("chainscope.pricing")
 SERIES_TTL = 6 * 3600
 DIRECTORY_TTL = 86400

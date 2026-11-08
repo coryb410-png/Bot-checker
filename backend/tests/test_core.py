@@ -188,7 +188,13 @@ def test_one_network_failing_does_not_sink_the_scan(monkeypatch):
         async def price_transactions(self, txs): pass
         async def current(self, assets): return {}
 
-    monkeypatch.setattr(service, "_scanner", lambda c: Down() if c == Chain.ROBINHOOD else Good())
+    class Empty:
+        async def scan(self, address, since_cursor=None):
+            return
+            yield  # pragma: no cover
+
+    monkeypatch.setattr(service, "_scanner",
+                        lambda c: Down() if c == Chain.ROBINHOOD else Good() if c == Chain.ETHEREUM else Empty())
     p = service.Store().create(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], Method.FIFO)
     asyncio.run(service.run_scan(p, NoPrices()))
     assert p.status == "ready" and len(p.txs) == 1

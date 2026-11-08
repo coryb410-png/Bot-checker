@@ -6,13 +6,15 @@ from __future__ import annotations
 
 import asyncio
 import os
-import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+
+from api.limits import RULES, take
 from pydantic import BaseModel, Field
 
 from classifiers.spam import counts as spam_counts, is_spam_tx
@@ -30,11 +32,44 @@ from portfolio.pnl import Method
 from portfolio.service import Store, progress_key, recompute, run_scan, wallet_view
 from pricing.coingecko import PriceService
 
-app = FastAPI(title="ChainScope API", version="0.1.0")
+app = FastAPI(
+    title="ChainScope API", version="1.0.0",
+    description=("Read-only wallet analytics: scan public addresses on Bitcoin, Ethereum (+ Base, Arbitrum, "
+                 "Optimism, Polygon, Robinhood Chain), Solana, Cardano, XRP Ledger and Dogecoin; get history, "
+                 "holdings, NFTs and profit/loss. Use the /api/v1 paths; nothing is stored, and scans live in "
+                 "memory only until the server restarts. See docs/API.md."),
+    docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json",
+)
+
+
+@app.middleware("http")
+async def api_gate(request: Request, call_next):
+    """/api/v1/... is the stable, versioned path for apps (same routes as /api/...),
+    and every API call spends from the caller's general rate limit."""
+    path = request.scope["path"]
+    if path.startswith("/api/v1/"):
+        path = "/api/" + path[len("/api/v1/"):]
+        request.scope["path"] = path
+        request.scope["raw_path"] = path.encode()
+    if path.startswith("/api/") and path not in ("/api/health", "/api/docs", "/api/openapi.json") \
+            and request.method != "OPTIONS":
+        try:
+            take(request, "request")
+        except HTTPException as e:
+            return JSONResponse({"detail": e.detail}, status_code=e.status_code, headers=e.headers)
+    return await call_next(request)
+
+
+# Which other websites may call the API from a browser (the ChainScope site
+# itself goes through its own server, so it doesn't need to be listed).
+# CORS_ORIGINS: comma-separated, e.g. "https://wallet.example.com"; "*" allows any.
+_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(","),
-    allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["*"],
+    allow_origins=_origins,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["content-type", "x-api-key"],
+    expose_headers=["Retry-After"],
 )
 store = Store()
 prices = PriceService()
@@ -57,20 +92,9 @@ def _realized_by_tx(p) -> dict:
         out[d.tx_hash] = None if (prev is None or d.realized is None) else prev + d.realized
     return out
 
-# ---- rate limiting: N scans per IP per hour (move to Redis for >1 server)
-SCANS_PER_HOUR = int(os.environ.get("SCANS_PER_HOUR", "10"))
-_hits: dict[str, deque] = defaultdict(deque)
-
-
 def _limit(req: Request, bucket: str = "scan", per_hour: int | None = None) -> None:
-    ip = (req.headers.get("x-chainscope-client")
-          or req.headers.get("x-forwarded-for", req.client.host if req.client else "?")).split(",")[0].strip()
-    q, now = _hits[f"{bucket}:{ip}"], time.time()
-    while q and now - q[0] > 3600:
-        q.popleft()
-    if len(q) >= (per_hour or SCANS_PER_HOUR):
-        raise HTTPException(429, "Too many requests from this network. Try again within the hour.")
-    q.append(now)
+    """Spend from this caller's bucket (see api/limits.py)."""
+    take(req, bucket if bucket in RULES else "scan")
 
 
 def s(d: Decimal | None) -> str | None:
@@ -398,5 +422,9 @@ def _tx_json(t, realized: dict):
             "cardano": f"https://cardanoscan.io/transaction/{t.tx_hash.split('#')[0]}",
             "xrp": f"https://livenet.xrpl.org/transactions/{t.tx_hash}",
             "dogecoin": f"https://blockchair.com/dogecoin/transaction/{t.tx_hash}",
+            "base": f"https://basescan.org/tx/{t.tx_hash}",
+            "arbitrum": f"https://arbiscan.io/tx/{t.tx_hash}",
+            "optimism": f"https://optimistic.etherscan.io/tx/{t.tx_hash}",
+            "polygon": f"https://polygonscan.com/tx/{t.tx_hash}",
         }[t.chain.value],
     }

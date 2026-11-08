@@ -12,7 +12,7 @@ interface Entry { address: string; chain: Chain; label?: string }
 const NETWORKS: [string, string, string | null][] = [
   ["bitcoin", "Bitcoin", "BTC"], ["ethereum", "Ethereum", "ETH"], ["solana", "Solana", "SOL"],
   ["cardano", "Cardano", "ADA"], ["xrp", "XRP Ledger", "XRP"], ["dogecoin", "Dogecoin", "DOGE"],
-  ["robinhood", "Robinhood Chain", null],
+  ["evm", "Base · Arbitrum · Optimism · Polygon · Robinhood", null],
 ];
 
 export default function Home() {
@@ -132,7 +132,7 @@ export default function Home() {
           </div>
           <div className="row" style={{ fontSize: 13, color: "var(--muted)", justifyContent: "space-between" }}>
             <span>
-              {detected ? <span className={`chip ${detected}`}>{CHAIN_LABEL[detected]}{detected === "ethereum" ? " + Robinhood Chain" : ""} detected</span>
+              {detected ? <span className={`chip ${detected}`}>{CHAIN_LABEL[detected]}{detected === "ethereum" ? " + 5 more networks" : ""} detected</span>
                 : typedName ? (() => {
                     const kind = typedName.startsWith("$") ? ["cardano", "ADA Handle"] : typedName.endsWith(".sol") ? ["solana", "Solana name"] : ["ethereum", "ENS name"];
                     return <span className={`chip ${kind[0]}`}>{kind[1]}</span>;
@@ -156,7 +156,7 @@ export default function Home() {
               {entries.map((e) => (
                 <li key={e.address}>
                   <span className="row" style={{ minWidth: 0 }}>
-                    <span className={`chip ${e.chain}`}>{CHAIN_LABEL[e.chain]}{e.chain === "ethereum" ? " + Robinhood" : ""}</span>
+                    <span className={`chip ${e.chain}`}>{CHAIN_LABEL[e.chain]}{e.chain === "ethereum" ? " + 5 networks" : ""}</span>
                     {e.label && <strong>{e.label}</strong>}
                     <span className="mono" title={e.address} style={e.label ? { color: "var(--muted)", fontSize: 13 } : undefined}>{shorten(e.address, e.label ? 4 : 8)}</span>
                   </span>

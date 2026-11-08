@@ -1,11 +1,19 @@
 // Instant client-side checks. The API re-validates with full checksums.
-export type Chain = "bitcoin" | "ethereum" | "solana" | "robinhood" | "cardano" | "xrp" | "dogecoin";
+export type Chain = "bitcoin" | "ethereum" | "solana" | "robinhood" | "cardano" | "xrp" | "dogecoin"
+  | "base" | "arbitrum" | "optimism" | "polygon";
+
+// Every 0x address is also scanned on these Ethereum-style networks
+export const EVM_EXTRAS: Chain[] = ["base", "arbitrum", "optimism", "polygon", "robinhood"];
 
 export const CHAIN_LABEL: Record<Chain, string> = {
   bitcoin: "Bitcoin",
   ethereum: "Ethereum",
   solana: "Solana",
   robinhood: "Robinhood Chain",
+  base: "Base",
+  arbitrum: "Arbitrum",
+  optimism: "Optimism",
+  polygon: "Polygon",
   cardano: "Cardano",
   xrp: "XRP Ledger",
   dogecoin: "Dogecoin",

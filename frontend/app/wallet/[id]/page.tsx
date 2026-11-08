@@ -19,7 +19,7 @@ const TYPES: [string, string][] = [
 ];
 const PAGE = 250;
 
-// One tab per address. An 0x address is scanned on Ethereum and Robinhood
+// One tab per address. An 0x address is scanned on Ethereum and five other networks
 // Chain, so it gets a single tab covering both.
 type WalletTab = { address: string; label: string | null; chains: Chain[]; scanned: number };
 function walletTabs(addresses: WalletStatus["addresses"]): WalletTab[] {
@@ -31,7 +31,9 @@ function walletTabs(addresses: WalletStatus["addresses"]): WalletTab[] {
   }
   return out;
 }
-const chainsLabel = (cs: Chain[]) => cs.map((c) => (c === "robinhood" ? "Robinhood" : CHAIN_LABEL[c])).join(" + ");
+const chainsLabel = (cs: Chain[]) =>
+  cs.includes("ethereum") && cs.length > 2 ? `Ethereum + ${cs.length - 1} networks`
+  : cs.map((c) => (c === "robinhood" ? "Robinhood" : CHAIN_LABEL[c])).join(" + ");
 
 export default function WalletPage({ params }: { params: { id: string } }) {
   const id = params.id;
@@ -286,7 +288,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
                   {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
                 <select aria-label="Filter by network" value={chain} onChange={(e) => setChain(e.target.value)} style={{ width: "auto" }}>
-                  <option value="">All networks</option><option value="bitcoin">Bitcoin</option><option value="ethereum">Ethereum</option><option value="solana">Solana</option><option value="robinhood">Robinhood Chain</option><option value="cardano">Cardano</option><option value="xrp">XRP Ledger</option><option value="dogecoin">Dogecoin</option>
+                  <option value="">All networks</option><option value="bitcoin">Bitcoin</option><option value="ethereum">Ethereum</option><option value="solana">Solana</option><option value="base">Base</option><option value="arbitrum">Arbitrum</option><option value="optimism">Optimism</option><option value="polygon">Polygon</option><option value="robinhood">Robinhood Chain</option><option value="cardano">Cardano</option><option value="xrp">XRP Ledger</option><option value="dogecoin">Dogecoin</option>
                 </select>
                 <label className="row" style={{ gap: 6, fontSize: 14 }}>
                   <input type="checkbox" checked={nftOnly} onChange={(e) => setNftOnly(e.target.checked)} style={{ width: "auto" }} />

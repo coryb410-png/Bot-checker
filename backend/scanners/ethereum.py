@@ -1,4 +1,10 @@
-"""Ethereum via Alchemy (alchemy_getAssetTransfers + receipts for gas).
+"""Ethereum and the big Ethereum-style networks via Alchemy
+(alchemy_getAssetTransfers + receipts for gas), one scanner per network.
+
+  Ethereum, Base, Arbitrum, Optimism, Polygon. All use the same 0x address and
+  the same ALCHEMY_API_KEY (each network must be enabled for the key's app in
+  the Alchemy dashboard). Internal transfers (ETH sent by contracts) are only
+  available on Ethereum, Base and Polygon; NFT floors only on Ethereum.
 
 Docs: https://www.alchemy.com/docs  (Transfers API, eth_getTransactionReceipt)
 
@@ -10,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from typing import AsyncIterator
@@ -25,16 +31,50 @@ ETH_EQUIVALENT = {
     "0x0000000000a39bb272e79075ade125fd351887ac": "ethereum",   # Blur Pool
     "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "weth",       # WETH
 }
-CATEGORIES = ["external", "internal", "erc20", "erc721", "erc1155", "specialnft"]
 WEI = Decimal(10) ** 18
+
+
+@dataclass(frozen=True)
+class EvmNetwork:
+    chain: Chain
+    alchemy: str                      # Alchemy subdomain, e.g. "base-mainnet"
+    native: Asset                     # gas coin
+    categories: tuple[str, ...]       # transfer types Alchemy supports here
+    eth_equivalent: dict              # wrapped-ETH style tokens priced as ETH
+
+    @property
+    def key_prefix(self) -> str:
+        return self.chain.value
+
+
+def _native(chain: Chain, symbol: str = "ETH", cg: str = "ethereum") -> Asset:
+    return Asset(chain, symbol, decimals=18, coingecko_id=cg)
+
+
+_WITH_INTERNAL = ("external", "internal", "erc20", "erc721", "erc1155")
+_NO_INTERNAL = ("external", "erc20", "erc721", "erc1155")
+NETWORKS: dict[Chain, EvmNetwork] = {
+    Chain.ETHEREUM: EvmNetwork(Chain.ETHEREUM, "eth-mainnet", ETH, _WITH_INTERNAL + ("specialnft",), ETH_EQUIVALENT),
+    Chain.BASE: EvmNetwork(Chain.BASE, "base-mainnet", _native(Chain.BASE), _WITH_INTERNAL,
+                           {"0x4200000000000000000000000000000000000006": "weth"}),
+    Chain.ARBITRUM: EvmNetwork(Chain.ARBITRUM, "arb-mainnet", _native(Chain.ARBITRUM), _NO_INTERNAL,
+                               {"0x82af49447d8a07e3bd95bd0d56f35241523fbab1": "weth"}),
+    Chain.OPTIMISM: EvmNetwork(Chain.OPTIMISM, "opt-mainnet", _native(Chain.OPTIMISM), _NO_INTERNAL,
+                               {"0x4200000000000000000000000000000000000006": "weth"}),
+    Chain.POLYGON: EvmNetwork(Chain.POLYGON, "polygon-mainnet", _native(Chain.POLYGON, "POL", "polygon-ecosystem-token"),
+                              _WITH_INTERNAL, {"0x7ceb23fd6bc0add59e62ac25578270cff1b9f619": "weth"}),
+}
+L2_CHAINS = (Chain.BASE, Chain.ARBITRUM, Chain.OPTIMISM, Chain.POLYGON)
 MAX_REFRESH = 25   # tokens per scan re-read from source when Alchemy has no image
 
 
 class EthereumScanner:
-    def __init__(self, http: Http | None = None, nft_http: Http | None = None):
+    def __init__(self, http: Http | None = None, nft_http: Http | None = None, network: Chain = Chain.ETHEREUM):
+        self.net = NETWORKS[network]
         key = env("ALCHEMY_API_KEY")
-        self.http = http or Http(f"https://eth-mainnet.g.alchemy.com/v2/{key}", rate_per_sec=10)
-        self.nft_http = nft_http or Http(f"https://eth-mainnet.g.alchemy.com/nft/v3/{key}", rate_per_sec=5)
+        sub = self.net.alchemy
+        self.http = http or Http(f"https://{sub}.g.alchemy.com/v2/{key}", rate_per_sec=10)
+        self.nft_http = nft_http or Http(f"https://{sub}.g.alchemy.com/nft/v3/{key}", rate_per_sec=5)
         self._id = 0
 
     async def _rpc(self, method: str, params: list) -> dict:
@@ -49,7 +89,7 @@ class EthereumScanner:
         while True:
             params = {
                 "fromBlock": "0x0", "toBlock": "latest", direction: address,
-                "category": CATEGORIES, "withMetadata": True, "excludeZeroValue": True,
+                "category": list(self.net.categories), "withMetadata": True, "excludeZeroValue": True,
                 "maxCount": "0x3e8", "order": "desc",
             }
             if page_key:
@@ -91,25 +131,25 @@ class EthereumScanner:
             cat, rc = t["category"], t.get("rawContract") or {}
             if cat in ("external", "internal"):
                 amount = Decimal(int(rc.get("value") or "0x0", 16)) / WEI if rc.get("value") else Decimal(str(t["value"] or 0))
-                legs.append(Leg(ETH, sign * amount, counterparty=other))
+                legs.append(Leg(self.net.native, sign * amount, counterparty=other))
             elif cat == "erc20":
                 dec = int(rc.get("decimal") or "0x12", 16)
                 raw = int(rc.get("value") or "0x0", 16)
                 contract = rc["address"].lower()
-                asset = Asset(Chain.ETHEREUM, t.get("asset") or "UNKNOWN", contract=contract, decimals=dec,
-                              coingecko_id=ETH_EQUIVALENT.get(contract))
+                asset = Asset(self.net.chain, t.get("asset") or "UNKNOWN", contract=contract, decimals=dec,
+                              coingecko_id=self.net.eth_equivalent.get(contract))
                 legs.append(Leg(asset, sign * Decimal(raw) / (Decimal(10) ** dec), counterparty=other))
             else:  # NFTs
                 items = t.get("erc1155Metadata") or [{"tokenId": t.get("tokenId") or t.get("erc721TokenId"), "value": "0x1"}]
                 for it in items:
-                    asset = Asset(Chain.ETHEREUM, t.get("asset") or "NFT", contract=rc["address"].lower(),
+                    asset = Asset(self.net.chain, t.get("asset") or "NFT", contract=rc["address"].lower(),
                                   decimals=0, is_nft=True, token_id=str(int(it["tokenId"], 16)),
                                   collection=rc["address"].lower())
                     legs.append(Leg(asset, sign * int(it.get("value") or "0x1", 16), counterparty=other))
 
         merged = _merge_legs(legs)
         ts = datetime.fromisoformat(transfers[0]["metadata"]["blockTimestamp"].replace("Z", "+00:00"))
-        tx = NormalizedTx(Chain.ETHEREUM, tx_hash, ts, me, merged)
+        tx = NormalizedTx(self.net.chain, tx_hash, ts, me, merged)
         # The top-level "external" transfer's sender is the tx signer
         tx._sender_is_me = any(t["category"] == "external" and t["from"].lower() == me for t in transfers) \
             or any(l.amount < 0 for l in merged)  # type: ignore[attr-defined]
@@ -128,7 +168,7 @@ class EthereumScanner:
                 if not rec or rec["from"].lower() != me:
                     continue
                 gas = int(rec["gasUsed"], 16) * int(rec.get("effectiveGasPrice", "0x0"), 16)
-                tx.fee, tx.fee_asset = Decimal(gas) / WEI, ETH
+                tx.fee, tx.fee_asset = Decimal(gas) / WEI, self.net.native
                 tx.success = rec.get("status") == "0x1"
                 tx.interacted_with = rec.get("to")
 
@@ -182,7 +222,7 @@ class EthereumScanner:
                 tid = str(int(tid, 16)) if tid.startswith("0x") else tid
                 m = meta.get((c, tid)) or {}
                 sym = (n.get("contract") or {}).get("symbol") or "NFT"
-                out.append(Asset(Chain.ETHEREUM, sym, contract=c, decimals=0, is_nft=True, token_id=tid,
+                out.append(Asset(self.net.chain, sym, contract=c, decimals=0, is_nft=True, token_id=tid,
                                  collection=c, name=m.get("name"), image=m.get("image"), spam=bool(m.get("spam"))))
             page_key = res.get("pageKey")
             if not page_key:
@@ -191,13 +231,13 @@ class EthereumScanner:
 
     async def balances(self, address: str) -> dict[str, Decimal]:
         eth = int(await self._rpc("eth_getBalance", [address, "latest"]), 16)
-        out = {ETH.key: Decimal(eth) / WEI}
+        out = {self.net.native.key: Decimal(eth) / WEI}
         res = await self._rpc("alchemy_getTokenBalances", [address, "erc20"])
         for tb in res["tokenBalances"]:
             raw = int(tb["tokenBalance"], 16)
             if raw:
                 meta = await self._rpc("alchemy_getTokenMetadata", [tb["contractAddress"]])
-                out[f"ethereum:{tb['contractAddress'].lower()}"] = Decimal(raw) / Decimal(10) ** (meta.get("decimals") or 18)
+                out[f"{self.net.key_prefix}:{tb['contractAddress'].lower()}"] = Decimal(raw) / Decimal(10) ** (meta.get("decimals") or 18)
         return out
 
 

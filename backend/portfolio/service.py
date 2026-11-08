@@ -61,11 +61,13 @@ class Store:
         for a in addresses:
             chain = detect_chain(a)
             parsed.append((chain, normalize(a, chain)))
-        # The same 0x address also exists on Robinhood Chain (an Ethereum L2):
-        # scan it there too, automatically.
+        # The same 0x address also exists on every Ethereum-style network:
+        # scan it on each of them too, automatically.
         for chain, addr in list(parsed):
-            if chain == Chain.ETHEREUM and (Chain.ROBINHOOD, addr) not in parsed:
-                parsed.append((Chain.ROBINHOOD, addr))
+            if chain == Chain.ETHEREUM:
+                for extra in (Chain.ROBINHOOD,) + EVM_EXTRAS:
+                    if (extra, addr) not in parsed:
+                        parsed.append((extra, addr))
         p = Portfolio(id=secrets.token_urlsafe(9), addresses=parsed, method=method)
         for raw in addresses:
             if labels and labels.get(raw):
@@ -96,9 +98,9 @@ def _scanner(chain: Chain):
     if chain == Chain.BITCOIN:
         from scanners.bitcoin import BitcoinScanner
         return BitcoinScanner()
-    if chain == Chain.ETHEREUM:
+    if chain == Chain.ETHEREUM or chain in EVM_EXTRAS:
         from scanners.ethereum import EthereumScanner
-        return EthereumScanner()
+        return EthereumScanner(network=chain)
     if chain == Chain.ROBINHOOD:
         from scanners.robinhood import RobinhoodScanner
         return RobinhoodScanner()
@@ -200,7 +202,7 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
             p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
             return []
 
-    wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP, Chain.DOGECOIN)]
+    wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP, Chain.DOGECOIN) + EVM_EXTRAS]
     for (_, addr), owned in zip(wallets, await asyncio.gather(*(owned_by(c, a) for c, a in wallets))):
         owned_by_key.update({a.key: a for a in owned})
         p.nft_owner.update({a.key: addr for a in owned})
@@ -220,6 +222,7 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
 
 NATIVE_SOL = Asset(Chain.SOLANA, "SOL", decimals=9, coingecko_id="solana")
 NATIVE_ETH = Asset(Chain.ETHEREUM, "ETH", coingecko_id="ethereum")
+EVM_EXTRAS = (Chain.BASE, Chain.ARBITRUM, Chain.OPTIMISM, Chain.POLYGON)   # scanned for every 0x address
 NATIVE_ADA = Asset(Chain.CARDANO, "ADA", decimals=6, coingecko_id="cardano")
 NATIVE_XRP = Asset(Chain.XRP, "XRP", decimals=6, coingecko_id="ripple")
 NATIVES = (NATIVE_SOL, NATIVE_ETH, NATIVE_ADA, NATIVE_XRP)
