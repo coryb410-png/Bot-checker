@@ -86,3 +86,38 @@ def test_bitcoin_scanner_unchanged():
     raw = esplora_tx("b", 1730000000, [("x", 300_000)], [("bc1me", 100_000)], 0)
     tx = BitcoinScanner.normalize(raw, "bc1me")
     assert tx.chain == Chain.BITCOIN and tx.legs[0].asset == BTC
+
+
+def test_doginals_held_as_nfts():
+    from scanners.dogecoin import DoginalsClient
+    INS_IMG, INS_TXT, INS_OLD = "a" * 64 + "i0", "b" * 64 + "i0", "c" * 64 + "i0"
+
+    class Maestro:
+        def __init__(self):
+            self.calls = []
+
+        async def get(self, path, params=None):
+            self.calls.append((path, dict(params or {})))
+            if path == f"/addresses/{ME}/inscriptions":
+                if not (params or {}).get("cursor"):
+                    return {"data": [{"inscription_id": INS_IMG, "content_type": "image/png", "inscription_number": 4242,
+                                      "collection": {"id": "dogepunks", "name": "DogePunks"}},
+                                     {"inscription_id": INS_TXT, "content_type": "text/plain;charset=utf-8"}],
+                            "next_cursor": "p2"}
+                return {"data": [{"inscription_id": INS_OLD}], "next_cursor": None}
+            if path == f"/assets/inscriptions/{INS_OLD}":
+                return {"data": {"inscription_id": INS_OLD, "content_type": "image/webp", "inscription_number": 7}}
+            raise AssertionError(path)
+
+    m = Maestro()
+    held = asyncio.run(DoginalsClient(http=m).held(ME))
+    assert [(a.name, a.collection, a.is_nft) for a in held] == [
+        ("DogePunks #4242", "dogepunks", True), ("Doginal #7", INS_OLD, True)]   # text inscription skipped
+    assert held[0].image == f"https://wonky-ord.dogeord.io/content/{INS_IMG}"
+    assert any(c[1].get("cursor") == "p2" for c in m.calls)                      # pages followed
+
+
+def test_doginals_off_without_key(monkeypatch):
+    from scanners.dogecoin import DoginalsClient
+    monkeypatch.delenv("MAESTRO_API_KEY", raising=False)
+    assert asyncio.run(DoginalsClient().held(ME)) == []

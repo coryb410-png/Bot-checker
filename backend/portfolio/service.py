@@ -200,7 +200,7 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
             p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
             return []
 
-    wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP)]
+    wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP, Chain.DOGECOIN)]
     for (_, addr), owned in zip(wallets, await asyncio.gather(*(owned_by(c, a) for c, a in wallets))):
         owned_by_key.update({a.key: a for a in owned})
         p.nft_owner.update({a.key: addr for a in owned})

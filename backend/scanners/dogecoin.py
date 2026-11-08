@@ -6,6 +6,13 @@ Primary:  electrs-dogecoin, a Dogecoin port of the explorer API the Bitcoin
 Backup:   BlockCypher (BLOCKCYPHER_API_URL; optional free BLOCKCYPHER_TOKEN raises
           its limits from about 100 requests an hour). Used automatically if
           the primary can't be reached.
+
+Doginals (Dogecoin NFTs: inscriptions written onto Dogecoin, like Bitcoin
+Ordinals) aren't visible to an ordinary explorer, so the NFTs a wallet holds
+come from Maestro's Dogecoin inscription API (MAESTRO_API_KEY, free account;
+MAESTRO_DOGE_URL). Images are each inscription's own content, shown from a
+public Doginals explorer (DOGINALS_CONTENT_URL, "{id}" is replaced). With no
+key set, Doginals are simply skipped.
 """
 from __future__ import annotations
 
@@ -14,7 +21,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import AsyncIterator
 
-from core.models import Asset, Chain, Leg, NormalizedTx
+from core.models import Asset, Chain, Leg, NormalizedTx, safe_image
 
 from .base import Http, ProviderError, env
 from .bitcoin import BitcoinScanner
@@ -72,6 +79,10 @@ class DogecoinScanner(BitcoinScanner):
                 return
             before = min(t.get("block_height", 0) for t in txs if t.get("block_height", -1) >= 0)
 
+    async def held_nfts(self, owner: str) -> list[Asset]:
+        """Doginals this address holds (needs MAESTRO_API_KEY; none without it)."""
+        return await DoginalsClient().held(owner)
+
     @staticmethod
     def normalize_blockcypher(raw: dict, address: str) -> NormalizedTx:
         sent = sum(int(i.get("output_value") or 0) for i in raw.get("inputs") or [] if address in (i.get("addresses") or []))
@@ -88,3 +99,66 @@ class DogecoinScanner(BitcoinScanner):
         return NormalizedTx(Chain.DOGECOIN, raw["hash"], ts, address,
                             [Leg(DOGE, Decimal(net) / KOINU, counterparty=cp)] if net else [],
                             fee=Decimal(fee) / KOINU, fee_asset=DOGE if paid else None)
+
+
+# ---------------------------------------------------------------- Doginals
+IMAGE_TYPES = ("image/png", "image/jpeg", "image/jpg", "image/gif", "image/webp", "image/avif", "image/svg+xml")
+
+
+def _rows(res) -> list:
+    """Maestro wraps results as {"data": [...]} (sometimes {"data": {"items": [...]}})."""
+    d = (res or {}).get("data", res) if isinstance(res, dict) else res
+    if isinstance(d, dict):
+        d = d.get("items") or d.get("inscriptions") or []
+    return d if isinstance(d, list) else []
+
+
+class DoginalsClient:
+    def __init__(self, http: Http | None = None):
+        key = env("MAESTRO_API_KEY", "")
+        self.enabled = bool(key) or http is not None
+        self.http = http or (Http(env("MAESTRO_DOGE_URL", "https://doge-mainnet.gomaestro-api.org/v0"), rate_per_sec=4,
+                                  headers={"api-key": key}) if key else None)
+
+    async def held(self, address: str) -> list[Asset]:
+        if not self.enabled:
+            return []
+        items, cursor = [], None
+        for _ in range(20):   # 100 per page: up to 2,000 inscriptions
+            params = {"count": 100}
+            if cursor:
+                params["cursor"] = cursor
+            res = await self.http.get(f"/addresses/{address}/inscriptions", params=params)
+            items += _rows(res)
+            cursor = (res or {}).get("next_cursor") if isinstance(res, dict) else None
+            if not cursor:
+                break
+        out = []
+        for it in items:
+            iid = it.get("inscription_id") or it.get("id") if isinstance(it, dict) else it
+            if not iid:
+                continue
+            ctype = (it.get("content_type") or "") if isinstance(it, dict) else ""
+            if not ctype:
+                try:   # older listings don't include the type: look it up
+                    info = await self.http.get(f"/assets/inscriptions/{iid}")
+                    info = (info or {}).get("data", info) or {}
+                    ctype = info.get("content_type") or ""
+                    if isinstance(it, dict):
+                        it = {**info, **it}
+                except ProviderError:
+                    continue
+            if not ctype.lower().startswith(IMAGE_TYPES):
+                continue   # text inscriptions (e.g. DRC-20 token transfers) aren't NFTs to show
+            coll = it.get("collection") if isinstance(it, dict) else None
+            coll_name = (coll.get("name") if isinstance(coll, dict) else coll) or None
+            number = it.get("inscription_number") or it.get("number") if isinstance(it, dict) else None
+            name = it.get("name") if isinstance(it, dict) else None
+            name = name or (f"{coll_name} #{number}" if coll_name and number is not None
+                            else f"Doginal #{number}" if number is not None else f"Doginal {iid[:8]}…")
+            image = env("DOGINALS_CONTENT_URL", "https://wonky-ord.dogeord.io/content/{id}").replace("{id}", iid)
+            collection = (coll.get("id") or coll.get("slug") if isinstance(coll, dict) else None) or coll_name or iid
+            out.append(Asset(Chain.DOGECOIN, (coll_name or "DOGINAL")[:16], contract=iid, decimals=0, is_nft=True,
+                             token_id=iid, name=name, image=safe_image(image), collection=collection))
+        return out
+

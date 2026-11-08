@@ -174,3 +174,4 @@ but tax treatment varies by country.
 - Enter a Dogecoin address (`D…`, or `A…`/`9…` multisig). Its checksum is verified, so it can't be mistaken for a Solana address.
 - History comes from electrs-dogecoin (`DOGE_ESPLORA_URL`), the Dogecoin port of the explorer API used for Bitcoin, which needs no key. If it can't be reached, scans switch to BlockCypher automatically; set `BLOCKCYPHER_TOKEN` (free) for more headroom.
 - DOGE is priced through CoinGecko, with full history, profit/loss, charts and highlights like every other network.
+- Doginals (Dogecoin NFTs) the wallet holds appear in the NFT gallery when `MAESTRO_API_KEY` is set (free Maestro account). Image inscriptions are shown, while text ones such as DRC-20 token transfers are skipped. Each image loads from a public Doginals explorer (`DOGINALS_CONTENT_URL`). Doginals have no floor price yet.
