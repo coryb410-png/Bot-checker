@@ -190,5 +190,14 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 @keyframes m-tail { from { rotate: -10deg; } to { rotate: 12deg; } }
 @keyframes m-breathe { 0%, 100% { translate: 0 0; } 50% { translate: 0 -1.5px; } }
 @media (max-width: 560px) { .mascot-body { width: 54px; height: 80px; } }
+/* Chain swinging: a full-screen layer above the page that never takes clicks */
+.swing-layer { position: fixed; inset: 0; z-index: 41; pointer-events: none; overflow: visible;
+  filter: drop-shadow(0 6px 6px rgba(0,0,0,.4)); }
+.swing-layer g, .swing-layer image { transform-box: fill-box; }
+/* dangling legs kick a little while hanging */
+.m-hang .m-leg-l { animation: m-kick .48s ease-in-out infinite alternate; }
+.m-hang .m-leg-r { animation: m-kick .48s ease-in-out infinite alternate-reverse; }
+.m-hang .m-arm-l { animation: m-kick .6s ease-in-out infinite alternate; }
+@keyframes m-kick { from { rotate: -14deg; } to { rotate: 16deg; } }
 @media (prefers-reduced-motion: reduce) { .mascot-svg, .mascot-svg * { animation: none !important; } .mascot { transition: none; } }
 @media print { .mascot { display: none; } }
