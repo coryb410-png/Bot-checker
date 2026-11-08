@@ -24,9 +24,9 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 //  • walkers keep their distance from each other's current spot and destination.
 const crew = {
   swingBottom: 0,                                   // 0 = nobody swinging
-  spots: new Map<number, { x: number; y: number }>(),   // walker index -> where it is / is heading
+  // walker index -> its current walk (from, to); both walkers' walks take the same time
+  paths: new Map<number, { from: { x: number; y: number }; to: { x: number; y: number } }>(),
 };
-const GAP = 110;   // minimum distance between walkers (px)
 
 export default function MonkeyMascot() {
   const [mode, setMode] = useState<"off" | "still" | "full">("off");
@@ -38,6 +38,18 @@ export default function MonkeyMascot() {
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
   }, []);
+  // One shared beat: every walker sets off on it together, then they pause together
+  useEffect(() => {
+    if (mode !== "full") return;
+    let timer: ReturnType<typeof setTimeout>;
+    const beat = () => {
+      if (!document.hidden) window.dispatchEvent(new Event("monkey-walk"));
+      timer = setTimeout(beat, (WALK_S + 1.8 + Math.random() * 2.2) * 1000);   // walk, then a short pause
+    };
+    timer = setTimeout(beat, 2500);
+    return () => clearTimeout(timer);
+  }, [mode]);
+
   if (mode === "off") return null;
   if (mode === "still") return <Walker index={0} still />;
   return (
@@ -49,7 +61,7 @@ export default function MonkeyMascot() {
 }
 
 /* ------------------------------------------------------------------ walkers */
-const SPEED = 110;   // pixels per second (a walk, not a dash)
+const WALK_S = 3.2;   // every walk on a beat takes this long, so the monkeys start and stop together
 
 function Walker({ index, still = false }: { index: number; still?: boolean }) {
   const pos = useRef({ x: 0, y: 0 });
@@ -64,71 +76,88 @@ function Walker({ index, still = false }: { index: number; still?: boolean }) {
     pos.current = index === 0
       ? { x: window.innerWidth - w() - 16, y: window.innerHeight - h() - 12 }   // bottom right
       : { x: 16, y: window.innerHeight - h() - 12 };                           // bottom left
-    crew.spots.set(index, pos.current);
+    crew.paths.set(index, { from: pos.current, to: pos.current });
     setXy(pos.current);
     if (still) return;
 
     let timer: ReturnType<typeof setTimeout>;
     let stopped = false;
-    // A spot clear of the swing band and at least GAP from the other walker(s)
-    function target() {
+    // Two walkers are "clear" when their boxes can't touch (with a small margin)
+    const clear = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      Math.abs(a.x - b.x) >= w() + 10 || Math.abs(a.y - b.y) >= h() + 10;
+    // Would walking from here to c (taking `secs`) ever touch another walker on its own walk?
+    function routeClear(c: { x: number; y: number }, secs: number) {
+      let ok = true;
+      crew.paths.forEach((o, k) => {
+        if (k === index || !ok) return;
+        for (let i = 0; i <= 20 && ok; i++) {
+          const f = i / 20, g = Math.min(1, (f * secs) / WALK_S);   // the other walk always takes WALK_S
+          const me = { x: pos.current.x + (c.x - pos.current.x) * f, y: pos.current.y + (c.y - pos.current.y) * f };
+          const it = { x: o.from.x + (o.to.x - o.from.x) * g, y: o.from.y + (o.to.y - o.from.y) * g };
+          ok = clear(me, it);
+        }
+        ok = ok && clear(c, o.to);   // and don't end up on top of each other
+      });
+      return ok;
+    }
+    // A spot clear of the swing band, reachable without bumping into anyone
+    function target(secs: number) {
       const pad = 12;
       const maxY = Math.max(pad, window.innerHeight - h() - pad);
       const minY = crew.swingBottom ? Math.min(maxY, crew.swingBottom + 8) : pad;
-      let best = { x: pad, y: maxY }, bestGap = -1;
-      for (let tries = 0; tries < 12; tries++) {
+      for (let tries = 0; tries < 40; tries++) {
         const c = { x: pad + Math.random() * Math.max(0, window.innerWidth - w() - pad * 2),
                     y: minY + Math.random() * Math.max(0, maxY - minY) };
-        let gap = Infinity;
-        crew.spots.forEach((o, k) => { if (k !== index) gap = Math.min(gap, Math.hypot(o.x - c.x, o.y - c.y)); });
-        if (gap >= GAP) return c;
-        if (gap > bestGap) { best = c; bestGap = gap; }
+        if (routeClear(c, secs)) return c;
       }
-      return best;
+      return null;   // nowhere safe right now: stay put this beat
     }
 
-    function walkTo(to: { x: number; y: number }, hurry = false) {
-      const seconds = Math.min(6, Math.max(hurry ? 0.6 : 1.2,
-        Math.hypot(to.x - pos.current.x, to.y - pos.current.y) / (hurry ? SPEED * 2.2 : SPEED)));
+    function walkTo(to: { x: number; y: number }, seconds: number) {
       clearTimeout(timer);
-      crew.spots.set(index, to);
+      crew.paths.set(index, { from: pos.current, to });
       setFacing(to.x < pos.current.x ? -1 : 1);
       setDur(seconds);
       setMoving(true);
       setXy(to);
       pos.current = to;
-      timer = setTimeout(() => {
+      timer = setTimeout(() => {   // arrived: stand and change mood until the next beat
+        crew.paths.set(index, { from: to, to });
         setMoving(false);
         setMood(pick());
-        timer = setTimeout(wander, 2500 + Math.random() * 3500);
       }, seconds * 1000);
     }
 
-    function wander() {
+    const wander = () => {
       if (stopped) return;
-      if (document.hidden) { timer = setTimeout(wander, 2000); return; }
-      walkTo(target());
-    }
+      const to = target(WALK_S);
+      if (to) walkTo(to, WALK_S);
+      else crew.paths.set(index, { from: pos.current, to: pos.current });   // standing still this beat
+    };
+    window.addEventListener("monkey-walk", wander);
 
     // A swinger is coming: get out of the band it swings through, quickly
     const clearOut = () => {
       if (stopped || !crew.swingBottom) return;
-      if (pos.current.y < crew.swingBottom + 8) walkTo(target(), true);
+      if (pos.current.y < crew.swingBottom + 8) {
+        const to = target(1.1);
+        if (to) walkTo(to, 1.1);   // hurry
+      }
     };
     window.addEventListener("monkey-swing-start", clearOut);
 
-    timer = setTimeout(wander, 2500 + index * 1800);   // don't set off in step
     const keepInside = () => {
       pos.current = { x: Math.min(pos.current.x, window.innerWidth - w() - 12), y: Math.min(pos.current.y, window.innerHeight - h() - 12) };
-      crew.spots.set(index, pos.current);
+      crew.paths.set(index, { from: pos.current, to: pos.current });
       setDur(0);
       setXy({ ...pos.current });
     };
     window.addEventListener("resize", keepInside);
     return () => {
-      stopped = true; clearTimeout(timer); crew.spots.delete(index);
+      stopped = true; clearTimeout(timer); crew.paths.delete(index);
       window.removeEventListener("resize", keepInside);
       window.removeEventListener("monkey-swing-start", clearOut);
+      window.removeEventListener("monkey-walk", wander);
     };
   }, [index, still]);
 
