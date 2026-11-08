@@ -19,6 +19,7 @@ class Chain(str, Enum):
     ROBINHOOD = "robinhood"   # Robinhood Chain, an Ethereum L2 (chain ID 4663)
     CARDANO = "cardano"
     XRP = "xrp"            # XRP Ledger
+    DOGECOIN = "dogecoin"
 
 
 class TxType(str, Enum):

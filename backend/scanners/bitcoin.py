@@ -17,6 +17,9 @@ SATS = Decimal(100_000_000)
 
 
 class BitcoinScanner:
+    """Any Esplora/electrs-style explorer API (Bitcoin here; Dogecoin reuses it)."""
+    CHAIN, ASSET = Chain.BITCOIN, BTC
+
     def __init__(self, http: Http | None = None):
         self.http = http or Http(env("MEMPOOL_BASE_URL", "https://mempool.space/api"), rate_per_sec=4)
 
@@ -35,8 +38,8 @@ class BitcoinScanner:
             if len(page) < 25:
                 return
 
-    @staticmethod
-    def normalize(raw: dict, address: str) -> NormalizedTx:
+    @classmethod
+    def normalize(cls, raw: dict, address: str) -> NormalizedTx:
         sent_sats = sum(v["prevout"]["value"] for v in raw["vin"]
                         if v.get("prevout") and v["prevout"].get("scriptpubkey_address") == address)
         recv_sats = sum(v["value"] for v in raw["vout"] if v.get("scriptpubkey_address") == address)
@@ -52,15 +55,15 @@ class BitcoinScanner:
                        if v.get("prevout") and v["prevout"].get("scriptpubkey_address") != address), None)
 
         ts = raw.get("status", {}).get("block_time")
-        legs = [Leg(BTC, Decimal(net) / SATS, counterparty=cp)] if net else []
+        legs = [Leg(cls.ASSET, Decimal(net) / SATS, counterparty=cp)] if net else []
         return NormalizedTx(
-            chain=Chain.BITCOIN, tx_hash=raw["txid"],
+            chain=cls.CHAIN, tx_hash=raw["txid"],
             timestamp=datetime.fromtimestamp(ts, timezone.utc) if ts else datetime.now(timezone.utc),
             wallet=address, legs=legs,
-            fee=Decimal(fee_sats) / SATS, fee_asset=BTC if paid_fee else None,
+            fee=Decimal(fee_sats) / SATS, fee_asset=cls.ASSET if paid_fee else None,
         )
 
     async def balance(self, address: str) -> dict[str, Decimal]:
         d = await self.http.get(f"/address/{address}")
         cs = d["chain_stats"]
-        return {BTC.key: Decimal(cs["funded_txo_sum"] - cs["spent_txo_sum"]) / SATS}
+        return {self.ASSET.key: Decimal(cs["funded_txo_sum"] - cs["spent_txo_sum"]) / SATS}

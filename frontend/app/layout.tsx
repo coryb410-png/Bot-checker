@@ -4,7 +4,7 @@ import MonkeyMascot from "@/components/MonkeyMascot";
 
 export const metadata: Metadata = {
   title: "ChainScope by MADBOY",
-  description: "Read-only history, holdings and profit/loss for Bitcoin, Ethereum, Solana, Cardano and XRP addresses.",
+  description: "Read-only history, holdings and profit/loss for Bitcoin, Ethereum, Solana, Cardano, XRP and Dogecoin addresses.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -397,5 +397,6 @@ def _tx_json(t, realized: dict):
             "robinhood": f"https://robinhoodchain.blockscout.com/tx/{t.tx_hash}",
             "cardano": f"https://cardanoscan.io/transaction/{t.tx_hash.split('#')[0]}",
             "xrp": f"https://livenet.xrpl.org/transactions/{t.tx_hash}",
+            "dogecoin": f"https://blockchair.com/dogecoin/transaction/{t.tx_hash}",
         }[t.chain.value],
     }

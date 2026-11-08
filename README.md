@@ -168,3 +168,9 @@ but tax treatment varies by country.
 - Balance changes are read straight from each transaction's ledger metadata. That covers XRP, issued tokens (trust lines), built-in exchange trades, AMM deposits and XLS-20 NFTs, and it stays exact for partial payments and multi-step trades.
 - NFT names and photos come from each NFT's metadata link, up to 80 lookups per scan. Tokens are priced through CoinGecko where listed.
 - XRP NFT floors come from XRP Ledger Services (api.xrpldata.com, no key), per issuer and collection number (taxon).
+
+## Dogecoin
+
+- Enter a Dogecoin address (`D…`, or `A…`/`9…` multisig). Its checksum is verified, so it can't be mistaken for a Solana address.
+- History comes from electrs-dogecoin (`DOGE_ESPLORA_URL`), the Dogecoin port of the explorer API used for Bitcoin, which needs no key. If it can't be reached, scans switch to BlockCypher automatically; set `BLOCKCYPHER_TOKEN` (free) for more headroom.
+- DOGE is priced through CoinGecko, with full history, profit/loss, charts and highlights like every other network.

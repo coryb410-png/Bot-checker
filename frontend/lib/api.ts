@@ -145,7 +145,8 @@ export function explorerUrl(chain: string, hash: string): string {
     : chain === "solana" ? `https://solscan.io/tx/${hash}`
     : chain === "robinhood" ? `https://robinhoodchain.blockscout.com/tx/${hash}`
     : chain === "cardano" ? `https://cardanoscan.io/transaction/${hash.split("#")[0]}`
-    : chain === "xrp" ? `https://livenet.xrpl.org/transactions/${hash}` : `https://etherscan.io/tx/${hash}`;
+    : chain === "xrp" ? `https://livenet.xrpl.org/transactions/${hash}`
+    : chain === "dogecoin" ? `https://blockchair.com/dogecoin/transaction/${hash}` : `https://etherscan.io/tx/${hash}`;
 }
 
 export function money(v: string | null | undefined, signed = false): string {

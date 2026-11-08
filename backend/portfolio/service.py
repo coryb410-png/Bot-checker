@@ -108,6 +108,9 @@ def _scanner(chain: Chain):
     if chain == Chain.XRP:
         from scanners.xrp import XrpScanner
         return XrpScanner()
+    if chain == Chain.DOGECOIN:
+        from scanners.dogecoin import DogecoinScanner
+        return DogecoinScanner()
     from scanners.solana import SolanaScanner
     return SolanaScanner()
 

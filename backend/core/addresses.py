@@ -1,4 +1,4 @@
-"""Address detection and validation for Bitcoin, Ethereum, Solana, Cardano and XRP.
+"""Address detection and validation for Bitcoin, Ethereum, Solana, Cardano, XRP and Dogecoin.
 
 Validation is structural (checksums where the format has one), done before any
 API call so typos never cost a provider request.
@@ -75,6 +75,20 @@ def is_bitcoin(addr: str) -> bool:
     return False
 
 
+def is_dogecoin(addr: str) -> bool:
+    """Dogecoin: base58check, 25 bytes, version 0x1E (D…) or 0x16 (A…/9…).
+    The checksum is what tells a 34-character D… address apart from Solana."""
+    if addr[:1] not in ("D", "A", "9") or not 33 <= len(addr) <= 35:
+        return False
+    try:
+        raw = b58decode(addr)
+    except InvalidAddress:
+        return False
+    if len(raw) != 25 or raw[0] not in (0x1E, 0x16):
+        return False
+    return hashlib.sha256(hashlib.sha256(raw[:21]).digest()).digest()[:4] == raw[21:]
+
+
 def is_cardano(addr: str) -> bool:
     """Shelley addresses (addr1…, stake1…) are bech32 without the 90-character
     cap; legacy Byron addresses (Ae2…, DdzFF…) are long base58 strings."""
@@ -143,13 +157,15 @@ def detect_chain(addr: str) -> Chain:
         return Chain.ETHEREUM
     if is_bitcoin(addr):
         return Chain.BITCOIN
+    if is_dogecoin(addr):     # checksummed, so checked before Solana
+        return Chain.DOGECOIN
     if is_cardano(addr):
         return Chain.CARDANO
     if is_xrp(addr):          # checksummed, so a Solana address can't pass by accident
         return Chain.XRP
     if is_solana(addr):
         return Chain.SOLANA
-    raise InvalidAddress("Not a valid Bitcoin, Ethereum, Solana, Cardano or XRP address")
+    raise InvalidAddress("Not a valid Bitcoin, Ethereum, Solana, Cardano, XRP or Dogecoin address")
 
 
 def normalize(addr: str, chain: Chain) -> str:
