@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import MonkeyMascot from "@/components/MonkeyMascot";
 
 export const metadata: Metadata = {
   title: "ChainScope by MADBOY",
@@ -17,7 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <MonkeyMascot />
+      </body>
     </html>
   );
 }
