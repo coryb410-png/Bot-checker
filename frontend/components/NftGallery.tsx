@@ -47,7 +47,7 @@ export default function NftGallery({ holdings }: { holdings: Holding[] }) {
       </div>
       {valued < nfts.length && (
         <span style={{ color: "var(--muted)", fontSize: 12, marginTop: -6 }}>
-          {nfts.length - valued} without a floor price (not listed on Magic Eden or OpenSea), so they show “—”.
+          {nfts.length - valued} without a floor price (no marketplace listing found), so they show “—”.
         </span>
       )}
 

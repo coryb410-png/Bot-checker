@@ -17,6 +17,7 @@ That is exact even for partial payments and multi-hop trades.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections import defaultdict
 from dataclasses import replace
@@ -24,7 +25,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import AsyncIterator
 
-from core.addresses import XRP_INDEX
+from core.addresses import XRP_ALPHABET, XRP_INDEX
 from core.models import Asset, Chain, Leg, NormalizedTx, safe_image
 
 from .base import Http, ProviderError, env
@@ -46,6 +47,26 @@ def account_id_hex(address: str) -> str:
         n = n * 58 + XRP_INDEX[c]
     raw = n.to_bytes(25, "big")
     return raw[1:21].hex().upper()
+
+
+def account_address(id_hex: str) -> str:
+    """20-byte account ID (hex) -> r-address (base58check, Ripple alphabet)."""
+    payload = b"\x00" + bytes.fromhex(id_hex)
+    raw = payload + hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    n = int.from_bytes(raw, "big")
+    out = ""
+    while n:
+        n, r = divmod(n, 58)
+        out = XRP_ALPHABET[r] + out
+    return "r" * (len(raw) - len(raw.lstrip(b"\x00"))) + out
+
+
+def nft_collection(nft_id: str) -> tuple[str, int]:
+    """(issuer r-address, taxon) for an XLS-20 NFT ID. The taxon is stored
+    scrambled with the token's sequence number; this undoes it."""
+    issuer = account_address(nft_id[8:48])
+    scrambled, seq = int(nft_id[48:56], 16), int(nft_id[56:64], 16)
+    return issuer, scrambled ^ ((384160001 * seq + 2459) % 4294967296)
 
 
 def currency_symbol(code: str) -> str:
@@ -219,7 +240,7 @@ class XrpScanner:
     # ------------------------------------------------------------ NFTs
     def nft_asset(self, nft_id: str, hex_uri: str | None = None, meta: dict | None = None) -> Asset:
         meta = meta or self._nft_meta.get(nft_id) or {}
-        issuer = nft_id[8:48]                   # every NFT ID embeds its issuer's account ID
+        issuer, taxon = nft_collection(nft_id)   # every NFT ID embeds its issuer and collection number
         serial = int(nft_id[56:64], 16) if len(nft_id) >= 64 else 0
         coll = meta.get("collection")
         coll_name = coll.get("name") if isinstance(coll, dict) else coll if isinstance(coll, str) else None
@@ -230,7 +251,7 @@ class XrpScanner:
             image = uri
         return Asset(Chain.XRP, (coll_name or "NFT")[:16], contract=nft_id, decimals=0, is_nft=True, token_id=nft_id,
                      name=name, image=safe_image(_gateway(image)) if isinstance(image, str) else None,
-                     collection=issuer)
+                     collection=f"{issuer}:{taxon}")
 
     async def _fetch_meta(self, nft_id: str, hex_uri: str | None) -> None:
         uri = _uri(hex_uri)

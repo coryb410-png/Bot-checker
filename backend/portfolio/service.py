@@ -44,7 +44,7 @@ class Portfolio:
     # Core NFTs, which don't move as tokens). Shown in holdings, no cost basis.
     untracked_nfts: list = field(default_factory=list)
     floors: dict = field(default_factory=dict)        # collection key -> Floor
-    native_usd: dict = field(default_factory=dict)    # "SOL"/"ETH" -> current USD price
+    native_usd: dict = field(default_factory=dict)    # "SOL"/"ETH"/"ADA"/"XRP" -> current USD price
     value_history: list | None = None                 # cached chart points
     nft_owner: dict = field(default_factory=dict)     # untracked NFT key -> owning address
     views: dict = field(default_factory=dict)         # address -> (report it was built from, view)
@@ -150,7 +150,7 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
         # different services, so run them side by side
         await asyncio.gather(prices.price_transactions(new), _find_untracked_nfts(p))
         mark_spam(p.txs)
-        current = await prices.current(_held_assets(p) + [NATIVE_SOL, NATIVE_ETH])
+        current = await prices.current(_held_assets(p) + list(NATIVES))
         recompute(p, current)
 
         p.status = "valuing"
@@ -217,6 +217,9 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
 
 NATIVE_SOL = Asset(Chain.SOLANA, "SOL", decimals=9, coingecko_id="solana")
 NATIVE_ETH = Asset(Chain.ETHEREUM, "ETH", coingecko_id="ethereum")
+NATIVE_ADA = Asset(Chain.CARDANO, "ADA", decimals=6, coingecko_id="cardano")
+NATIVE_XRP = Asset(Chain.XRP, "XRP", decimals=6, coingecko_id="ripple")
+NATIVES = (NATIVE_SOL, NATIVE_ETH, NATIVE_ADA, NATIVE_XRP)
 _floor_service = None
 
 
@@ -235,7 +238,7 @@ async def _value_nfts(p: Portfolio, current: dict) -> dict:
         p.floors = await _floor_service.floors_for(held)
     except Exception:
         p.floors = {}
-    p.native_usd = {"SOL": current.get(NATIVE_SOL.key), "ETH": current.get(NATIVE_ETH.key)}
+    p.native_usd = {a.symbol: current.get(a.key) for a in NATIVES}
     out = {}
     for a in held:
         f = p.floors.get(collection_key(a))

@@ -116,7 +116,9 @@ def test_payment_trade_nft_and_failed_tx():
     buy = by["NFTBUY"]
     nft = next(l for l in buy.legs if l.asset.is_nft)
     assert nft.amount == 1 and nft.asset.name == "Xpunk #42" and nft.asset.image == "https://ipfs.io/ipfs/QmPunk42.png"
-    assert nft.asset.collection == account_id_hex(FRIEND)
+    # collection = issuer + its unscrambled collection number (taxon)
+    from scanners.xrp import nft_collection
+    assert nft.asset.collection == "{}:{}".format(*nft_collection(NFT_ID)) and nft.asset.collection.startswith(FRIEND + ":")
     assert next(l.amount for l in buy.legs if l.asset == XRP) == D(-20)
     assert buy.tx_type == TxType.NFT_PURCHASE
 

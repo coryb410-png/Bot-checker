@@ -114,3 +114,50 @@ def test_value_history_replays_balances():
     assert vals[day(2)] == D(5 * 100 + 400)         # 10-4-1 fee = 5 SOL + 400 USDC
     assert vals[day(0)] == D(4 * 100 + 400)         # bought an NFT with 1 SOL; NFTs not in the line
     assert len(pts) == 6
+
+
+def test_cardano_floor_from_opencnft_in_lovelace_or_ada():
+    pol = "c" * 56
+    a = Asset(Chain.CARDANO, "Bud", contract=pol + "01", decimals=0, is_nft=True, token_id=pol + "01", collection=pol)
+    for raw, want in ((45_000_000, D(45)), (45, D(45)), ("12.5", D("12.5"))):
+        fs = FloorService(me=FakeHttp({}), alchemy_nft=FakeHttp({}),
+                          opencnft=FakeHttp({f"/policy/{pol}/floor_price": {"floor_price": raw}}), xrpldata=FakeHttp({}))
+        f = asyncio.run(fs.floors_for([a]))[collection_key(a)]
+        assert (f.amount, f.currency, f.source) == (want, "ADA", "OpenCNFT") and f.url == "https://opencnft.io"
+
+
+def test_xrp_floor_per_issuer_and_taxon():
+    from scanners.xrp import XrpScanner, account_id_hex, nft_collection
+    issuer = "rLNaPoKeeBjZe2qs6x52yVPZpZ8td4dc6w"
+    # Build an NFT ID for taxon 420, sequence 7 (taxon is stored scrambled)
+    seq, taxon = 7, 420
+    scrambled = taxon ^ ((384160001 * seq + 2459) % 4294967296)
+    nft_id = "00081388" + account_id_hex(issuer) + f"{scrambled:08X}" + f"{seq:08X}"
+    assert nft_collection(nft_id) == (issuer, 420)
+    a = XrpScanner(http=object(), meta_http=object()).nft_asset(nft_id)
+    assert a.collection == f"{issuer}:420"
+    data = FakeHttp({f"/xls20-nfts/stats/issuer/{issuer}/taxon/420": {"info": {}, "data": {"collection_info": {
+        "issuer": issuer, "taxon": "420", "floor": [{"issuer": "XRP_in_drops", "currency": "XRP", "amount": 8000000}]}}}})
+    fs = FloorService(me=FakeHttp({}), alchemy_nft=FakeHttp({}), opencnft=FakeHttp({}), xrpldata=data)
+    f = asyncio.run(fs.floors_for([a]))[collection_key(a)]
+    assert (f.amount, f.currency, f.source) == (D(8), "XRP", "XRP Ledger Services")
+
+
+def test_floors_convert_to_usd_for_ada_and_xrp(monkeypatch):
+    from portfolio import service
+    from portfolio.pnl import Method
+    from pricing.floors import Floor
+    pol = "c" * 56
+    nft = Asset(Chain.CARDANO, "Bud", contract=pol + "01", decimals=0, is_nft=True, token_id=pol + "01", collection=pol)
+    p = service.Store().create(["JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"], Method.FIFO)
+    ada = Asset(Chain.CARDANO, "ADA", decimals=6, coingecko_id="cardano")
+    p.txs = [NormalizedTx(Chain.CARDANO, "b", datetime.now(timezone.utc), "w", [Leg(ada, D(-40), usd_value=D(20)), Leg(nft, D(1), usd_value=D(20))])]
+    service.recompute(p, {})
+
+    class FakeFloors:
+        async def floors_for(self, nfts):
+            return {collection_key(nft): Floor(D(45), "ADA", "OpenCNFT")}
+
+    monkeypatch.setattr(service, "_floor_service", FakeFloors())
+    prices = asyncio.run(service._value_nfts(p, {service.NATIVE_ADA.key: D("0.5")}))
+    assert prices == {nft.key: D("22.5")} and p.native_usd["ADA"] == D("0.5")

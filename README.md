@@ -160,11 +160,11 @@ but tax treatment varies by country.
 - Data comes from [Koios](https://api.koios.rest), which needs no key. Set `KOIOS_API_KEY` (free account) to raise the daily limit from 5,000 to 50,000 requests.
 - ADA, native tokens (priced through CoinGecko where listed) and NFTs (CIP-25 and CIP-68 names and images) are all covered.
 - Staking rewards are shown as income when withdrawn, valued at the ADA price on that day.
-- Cardano NFT floor prices aren't included yet.
+- Cardano NFT floors come from [OpenCNFT](https://opencnft.io) (no key; credited next to each floor), because jpg.store closed its API in 2026.
 
 ## XRP Ledger
 
 - Enter a classic XRP address (`r…`). Data comes from the public XRP Ledger servers (`XRPL_RPC_URL`, default xrplcluster.com), with no key needed.
 - Balance changes are read straight from each transaction's ledger metadata. That covers XRP, issued tokens (trust lines), built-in exchange trades, AMM deposits and XLS-20 NFTs, and it stays exact for partial payments and multi-step trades.
 - NFT names and photos come from each NFT's metadata link, up to 80 lookups per scan. Tokens are priced through CoinGecko where listed.
-- XRP NFT floor prices aren't included yet.
+- XRP NFT floors come from XRP Ledger Services (api.xrpldata.com, no key), per issuer and collection number (taxon).
