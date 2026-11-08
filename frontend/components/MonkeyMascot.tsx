@@ -18,6 +18,16 @@ const pick = () => MOODS[Math.floor(Math.random() * MOODS.length)];
 const small = () => window.innerWidth < 560;
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+// Shared between the monkeys so they keep out of each other's way:
+//  • while a swinger is crossing, the band it swings through (from the top of
+//    the screen down to the bottom of its feet) is off-limits to walkers;
+//  • walkers keep their distance from each other's current spot and destination.
+const crew = {
+  swingBottom: 0,                                   // 0 = nobody swinging
+  spots: new Map<number, { x: number; y: number }>(),   // walker index -> where it is / is heading
+};
+const GAP = 110;   // minimum distance between walkers (px)
+
 export default function MonkeyMascot() {
   const [mode, setMode] = useState<"off" | "still" | "full">("off");
   const [walkers, setWalkers] = useState(2);
@@ -54,20 +64,34 @@ function Walker({ index, still = false }: { index: number; still?: boolean }) {
     pos.current = index === 0
       ? { x: window.innerWidth - w() - 16, y: window.innerHeight - h() - 12 }   // bottom right
       : { x: 16, y: window.innerHeight - h() - 12 };                           // bottom left
+    crew.spots.set(index, pos.current);
     setXy(pos.current);
     if (still) return;
 
     let timer: ReturnType<typeof setTimeout>;
     let stopped = false;
-    function wander() {
-      if (stopped) return;
-      if (document.hidden) { timer = setTimeout(wander, 2000); return; }
+    // A spot clear of the swing band and at least GAP from the other walker(s)
+    function target() {
       const pad = 12;
-      const to = {
-        x: pad + Math.random() * Math.max(0, window.innerWidth - w() - pad * 2),
-        y: pad + Math.random() * Math.max(0, window.innerHeight - h() - pad * 2),
-      };
-      const seconds = Math.min(6, Math.max(1.2, Math.hypot(to.x - pos.current.x, to.y - pos.current.y) / SPEED));
+      const maxY = Math.max(pad, window.innerHeight - h() - pad);
+      const minY = crew.swingBottom ? Math.min(maxY, crew.swingBottom + 8) : pad;
+      let best = { x: pad, y: maxY }, bestGap = -1;
+      for (let tries = 0; tries < 12; tries++) {
+        const c = { x: pad + Math.random() * Math.max(0, window.innerWidth - w() - pad * 2),
+                    y: minY + Math.random() * Math.max(0, maxY - minY) };
+        let gap = Infinity;
+        crew.spots.forEach((o, k) => { if (k !== index) gap = Math.min(gap, Math.hypot(o.x - c.x, o.y - c.y)); });
+        if (gap >= GAP) return c;
+        if (gap > bestGap) { best = c; bestGap = gap; }
+      }
+      return best;
+    }
+
+    function walkTo(to: { x: number; y: number }, hurry = false) {
+      const seconds = Math.min(6, Math.max(hurry ? 0.6 : 1.2,
+        Math.hypot(to.x - pos.current.x, to.y - pos.current.y) / (hurry ? SPEED * 2.2 : SPEED)));
+      clearTimeout(timer);
+      crew.spots.set(index, to);
       setFacing(to.x < pos.current.x ? -1 : 1);
       setDur(seconds);
       setMoving(true);
@@ -79,14 +103,33 @@ function Walker({ index, still = false }: { index: number; still?: boolean }) {
         timer = setTimeout(wander, 2500 + Math.random() * 3500);
       }, seconds * 1000);
     }
+
+    function wander() {
+      if (stopped) return;
+      if (document.hidden) { timer = setTimeout(wander, 2000); return; }
+      walkTo(target());
+    }
+
+    // A swinger is coming: get out of the band it swings through, quickly
+    const clearOut = () => {
+      if (stopped || !crew.swingBottom) return;
+      if (pos.current.y < crew.swingBottom + 8) walkTo(target(), true);
+    };
+    window.addEventListener("monkey-swing-start", clearOut);
+
     timer = setTimeout(wander, 2500 + index * 1800);   // don't set off in step
     const keepInside = () => {
       pos.current = { x: Math.min(pos.current.x, window.innerWidth - w() - 12), y: Math.min(pos.current.y, window.innerHeight - h() - 12) };
+      crew.spots.set(index, pos.current);
       setDur(0);
       setXy({ ...pos.current });
     };
     window.addEventListener("resize", keepInside);
-    return () => { stopped = true; clearTimeout(timer); window.removeEventListener("resize", keepInside); };
+    return () => {
+      stopped = true; clearTimeout(timer); crew.spots.delete(index);
+      window.removeEventListener("resize", keepInside);
+      window.removeEventListener("monkey-swing-start", clearOut);
+    };
   }, [index, still]);
 
   if (!xy) return null;
@@ -135,13 +178,20 @@ function Swingers() {
       const anchors: number[] = [];
       for (let x = first; x - L * Math.sin(THETA) < w + 70; x += step) anchors.push(x);
       setVw(w);
-      setRun({ dir: Math.random() < 0.5 ? 1 : -1, mood: pick(), L, anchors, start: performance.now(),
-               releasedAt: anchors.map(() => NaN) });
+      // Reserve the band: chain length + a hanging monkey + room for the swing
+      crew.swingBottom = L + 176 * (small() ? 0.42 : 0.56) + 16;
+      window.dispatchEvent(new Event("monkey-swing-start"));
+      // give the walkers a moment to get clear before the swinger appears
+      timer = setTimeout(() => {
+        if (stopped) return;
+        setRun({ dir: Math.random() < 0.5 ? 1 : -1, mood: pick(), L, anchors, start: performance.now(),
+                 releasedAt: anchors.map(() => NaN) });
+      }, 1200);
     };
     timer = setTimeout(launch, 6000);
     const again = () => { timer = setTimeout(launch, 9000 + Math.random() * 9000); };
     window.addEventListener("monkey-run-done", again);
-    return () => { stopped = true; clearTimeout(timer); window.removeEventListener("monkey-run-done", again); };
+    return () => { stopped = true; clearTimeout(timer); crew.swingBottom = 0; window.removeEventListener("monkey-run-done", again); };
   }, []);
 
   // Animate the current crossing
@@ -153,6 +203,7 @@ function Swingers() {
       const total = run.anchors.length * SWING_S * 1000;
       if (t - run.start > total + 1600) {      // finished, and the chains have faded
         setRun(null);
+        crew.swingBottom = 0;   // the top of the screen is free again
         window.dispatchEvent(new Event("monkey-run-done"));
         return;
       }
