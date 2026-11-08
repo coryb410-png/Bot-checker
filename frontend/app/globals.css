@@ -169,17 +169,26 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 @media (prefers-reduced-motion: reduce) { .nets li { transition: none; } .nets li:hover { transform: none; } }
 @media (max-width: 520px) { .nets li { font-size: 13px; padding: 6px 10px 6px 8px; } }
 
-/* Roaming MADBOY monkey (components/MonkeyMascot.tsx). Never takes clicks. */
+/* Roaming full-body MADBOY monkey (components/MonkeyMascot.tsx). Never takes clicks. */
 .mascot { position: fixed; left: 0; top: 0; z-index: 40; pointer-events: none;
-  transition-property: transform; transition-timing-function: cubic-bezier(.45,.05,.4,1); will-change: transform; }
-.mascot-body { width: 64px; height: 64px; transform: scaleX(var(--face, 1)); transition: transform .25s;
-  animation: mascot-idle 2.4s ease-in-out infinite; }
-.mascot-body.hop { animation: mascot-hop .42s ease-in-out infinite alternate; }
-.mascot-face { display: block; width: 100%; height: 100%; border-radius: 50%;
-  background: var(--brand) center 58% / 82% no-repeat; border: 2.5px solid var(--gold);
-  box-shadow: 0 6px 14px -4px rgba(0,0,0,.6), 0 0 18px rgba(94,242,224,.25); }
-@keyframes mascot-hop { from { translate: 0 0; rotate: -7deg; } to { translate: 0 -12px; rotate: 7deg; } }
-@keyframes mascot-idle { 0%, 100% { translate: 0 0; } 50% { translate: 0 -4px; } }
-@media (max-width: 560px) { .mascot-body { width: 48px; height: 48px; } }
-@media (prefers-reduced-motion: reduce) { .mascot-body, .mascot-body.hop { animation: none; } .mascot { transition: none; } }
+  transition-property: transform; transition-timing-function: linear; will-change: transform; }
+.mascot-body { width: 72px; height: 106px; transform: scaleX(var(--face, 1)); transition: transform .25s;
+  filter: drop-shadow(0 6px 6px rgba(0,0,0,.45)) drop-shadow(0 0 10px rgba(94,242,224,.18)); }
+.mascot-svg { display: block; overflow: visible; }
+.mascot-svg g, .mascot-svg image { transform-box: fill-box; }
+.m-leg, .m-arm { transform-origin: 50% 0%; }
+.m-tail { transform-origin: 100% 100%; animation: m-tail 1.6s ease-in-out infinite alternate; }
+.m-head { transform-origin: 50% 90%; animation: m-breathe 2.4s ease-in-out infinite; }
+/* walking: legs and arms swing in opposite pairs, the whole body bobs */
+.mascot-body.walk .mascot-svg { animation: m-bob .3s ease-in-out infinite alternate; }
+.mascot-body.walk .m-leg-l, .mascot-body.walk .m-arm-r { animation: m-swing .3s ease-in-out infinite alternate; }
+.mascot-body.walk .m-leg-r, .mascot-body.walk .m-arm-l { animation: m-swing .3s ease-in-out infinite alternate-reverse; }
+.mascot-body.walk .m-head { animation: m-nod .3s ease-in-out infinite alternate; }
+@keyframes m-swing { from { rotate: -24deg; } to { rotate: 24deg; } }
+@keyframes m-bob { from { translate: 0 0; } to { translate: 0 -4px; } }
+@keyframes m-nod { from { rotate: -3deg; } to { rotate: 3deg; } }
+@keyframes m-tail { from { rotate: -10deg; } to { rotate: 12deg; } }
+@keyframes m-breathe { 0%, 100% { translate: 0 0; } 50% { translate: 0 -1.5px; } }
+@media (max-width: 560px) { .mascot-body { width: 54px; height: 80px; } }
+@media (prefers-reduced-motion: reduce) { .mascot-svg, .mascot-svg * { animation: none !important; } .mascot { transition: none; } }
 @media print { .mascot { display: none; } }
