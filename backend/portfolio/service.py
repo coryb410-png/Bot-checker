@@ -33,6 +33,7 @@ class Portfolio:
     status: str = "queued"           # queued | scanning | pricing | ready | error
     progress: dict[str, int] = field(default_factory=dict)
     error: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     txs: list[NormalizedTx] = field(default_factory=list)
     report: PnLReport | None = None
     cursors: dict[str, str] = field(default_factory=dict)   # address -> newest tx hash
@@ -118,6 +119,8 @@ def _scanner(chain: Chain):
 
 
 async def run_scan(p: Portfolio, prices: PriceService) -> None:
+    from core import monitor
+    monitor.scan_begun(p.id, [c.value for c, _ in p.addresses])
     try:
         p.status = "scanning"
 
@@ -136,6 +139,7 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
                 # One network failing (an outage, a missing key) must not sink
                 # the others. Keep what was read and report the problem.
                 p.network_errors[key] = str(e)[:300]
+                monitor.provider_error(chain.value, str(e))
             return out
 
         results = await asyncio.gather(*(one(c, a) for c, a in p.addresses))
@@ -165,8 +169,10 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
         p.value_history = None
         p.status = "ready"
         p.updated_at = datetime.now(timezone.utc)
+        monitor.scan_ended(p.id, True, txs=len(p.txs))
     except Exception as e:  # surfaced to the UI
         p.status, p.error = "error", str(e)
+        monitor.scan_ended(p.id, False, error=str(e))
 
 
 def recompute(p: Portfolio, current_prices: dict[str, Decimal] | None = None) -> None:

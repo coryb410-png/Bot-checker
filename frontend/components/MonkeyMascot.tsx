@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 
 // The MADBOY monkey crew. Purely decorative: clicks pass straight through,
 // screen readers skip it, it pauses while the tab is hidden, and with "reduce
@@ -24,6 +25,7 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 const crew = { swingBottom: 0 };   // 0 = nobody swinging
 
 export default function MonkeyMascot() {
+  const path = usePathname();
   const [mode, setMode] = useState<"off" | "still" | "full">("off");
   const [walkers, setWalkers] = useState(2);
   useEffect(() => {
@@ -34,7 +36,7 @@ export default function MonkeyMascot() {
     return () => window.removeEventListener("resize", fit);
   }, []);
 
-  if (mode === "off") return null;
+  if (mode === "off" || path?.startsWith("/admin")) return null;   // no monkeys on the admin panel
   if (mode === "still") return <Walker index={0} still />;
   return (
     <>

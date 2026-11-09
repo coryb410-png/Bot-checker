@@ -74,6 +74,10 @@ app.add_middleware(
 store = Store()
 prices = PriceService()
 names = NameResolver()
+
+from api import admin  # noqa: E402  (needs store and prices)
+from core import monitor  # noqa: E402
+admin_routes = admin.register(app, store, prices)
 _jobs: set[asyncio.Task] = set()
 
 
@@ -143,8 +147,14 @@ async def resolve(name: str, req: Request):
     return {"name": name.strip().lower(), "chain": chain, "address": addr}
 
 
+def _not_in_maintenance() -> None:
+    if monitor.maintenance["on"]:
+        raise HTTPException(503, monitor.maintenance["message"])
+
+
 @app.post("/api/wallets/scan", status_code=202)
 async def scan(body: ScanRequest, req: Request):
+    _not_in_maintenance()
     resolved, labels = [], dict(body.labels)
     for a in body.addresses:
         if is_name(a):
@@ -177,6 +187,7 @@ async def demo(req: Request, method: Method = Method.FIFO):
 
 @app.post("/api/wallets/{pid}/refresh", status_code=202)
 async def refresh(pid: str, req: Request):
+    _not_in_maintenance()
     p = _portfolio(pid)
     if p.demo:
         raise HTTPException(400, "The example wallet uses invented data and can't be rescanned.")

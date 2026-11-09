@@ -26,6 +26,9 @@ async function forward(req: NextRequest, { params }: { params: { path: string[] 
   const ip = hops[hops.length - 1] ?? req.ip ?? "";
   if (ip) headers["x-chainscope-client"] = ip;
   if (process.env.PROXY_SHARED_SECRET) headers["x-chainscope-proxy-key"] = process.env.PROXY_SHARED_SECRET;
+  // Admin panel password, passed through only for admin calls
+  const admin = req.headers.get("x-admin-token");
+  if (admin && params.path[0] === "admin") headers["x-admin-token"] = admin;
 
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.text();
   try {

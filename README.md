@@ -181,5 +181,9 @@ but tax treatment varies by country.
 - The stable, versioned API lives at `/api/v1/…`. The full reference for app developers is in [docs/API.md](docs/API.md), with interactive docs at `/api/docs`.
 - Calls are rate limited per person: 240 a minute, and 12 new scans an hour. Partner apps sending an `X-API-Key` from `API_CLIENT_KEYS` get 20× more. Over the limit, the API answers 429 with a `Retry-After` header and a friendly message.
 - The website's proxy passes each visitor's IP, signed with `PROXY_SHARED_SECRET` (set the same value on both services), so website visitors are limited individually rather than as one user.
+
+### Admin panel
+
+Open `/admin` on the website and sign in with `ADMIN_TOKEN` (set it on the backend service only, 16+ characters; the panel is off without it). It shows live status, provider health checks, which keys are set (never their values), scans in memory by network and size (never addresses), recent activity, and lets you delete scans, change rate limits until restart, pause new scans for maintenance, clear the price and floor caches, and generate partner API keys. Nothing it shows is stored; it all resets when the server restarts. Wrong passwords are rate limited.
 - `CORS_ORIGINS` lists other websites allowed to call the API from a browser. Native apps and server-to-server calls don't need it.
 - Base, Arbitrum, Optimism and Polygon are scanned automatically for every 0x address, with the same `ALCHEMY_API_KEY`. Each network must be enabled for that key's app in the Alchemy dashboard.

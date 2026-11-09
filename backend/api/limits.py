@@ -42,6 +42,7 @@ RULES = {
     "scan": Rule(_env_int("RATE_SCANS_PER_HOUR", 12) / 60, 6),         # new scans and refreshes
     "resolve": Rule(_env_int("RATE_RESOLVES_PER_MIN", 30), 30),        # name.eth / $handle lookups
     "demo": Rule(30, 10),
+    "admin_auth": Rule(5, 10),                                         # wrong admin passwords
 }
 PARTNER_MULTIPLIER = _env_int("RATE_PARTNER_MULTIPLIER", 20)            # API-key holders get more
 
@@ -97,6 +98,8 @@ def take(req: Request, kind: str) -> None:
     b.tokens = min(cap, b.tokens + (now - b.at) * rate)
     b.at = now
     if b.tokens < 1:
+        from core import monitor
+        monitor.rate_limited(kind)
         wait = max(1, math.ceil((1 - b.tokens) / rate))
         raise HTTPException(429, _message(kind, wait), headers={"Retry-After": str(wait)})
     b.tokens -= 1
