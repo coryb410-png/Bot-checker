@@ -176,35 +176,12 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 @media (prefers-reduced-motion: reduce) { .nets li { transition: none; } .nets li:hover { transform: none; } }
 @media (max-width: 520px) { .nets li { font-size: 13px; padding: 6px 10px 6px 8px; } }
 
-/* Roaming full-body MADBOY monkey (components/MonkeyMascot.tsx). Never takes clicks. */
-.mascot { position: fixed; left: 0; top: 0; z-index: 40; pointer-events: none;
-  transition-property: transform; transition-timing-function: linear; will-change: transform; }
-.mascot-body { width: 72px; height: 106px; transform: scaleX(var(--face, 1)); transition: transform .25s;
-  filter: drop-shadow(0 6px 6px rgba(0,0,0,.45)) drop-shadow(0 0 10px rgba(94,242,224,.18)); }
-.mascot-svg { display: block; overflow: visible; }
-.mascot-svg g, .mascot-svg image { transform-box: fill-box; }
-.m-leg, .m-arm { transform-origin: 50% 0%; }
-.m-tail { transform-origin: 100% 100%; animation: m-tail 1.6s ease-in-out infinite alternate; }
-.m-head { transform-origin: 50% 90%; animation: m-breathe 2.4s ease-in-out infinite; }
-/* walking: legs and arms swing in opposite pairs, the whole body bobs */
-.mascot-body.walk .mascot-svg { animation: m-bob .3s ease-in-out infinite alternate; }
-.mascot-body.walk .m-leg-l, .mascot-body.walk .m-arm-r { animation: m-swing .3s ease-in-out infinite alternate; }
-.mascot-body.walk .m-leg-r, .mascot-body.walk .m-arm-l { animation: m-swing .3s ease-in-out infinite alternate-reverse; }
-.mascot-body.walk .m-head { animation: m-nod .3s ease-in-out infinite alternate; }
-@keyframes m-swing { from { rotate: -24deg; } to { rotate: 24deg; } }
-@keyframes m-bob { from { translate: 0 0; } to { translate: 0 -4px; } }
-@keyframes m-nod { from { rotate: -3deg; } to { rotate: 3deg; } }
-@keyframes m-tail { from { rotate: -10deg; } to { rotate: 12deg; } }
-@keyframes m-breathe { 0%, 100% { translate: 0 0; } 50% { translate: 0 -1.5px; } }
-@media (max-width: 560px) { .mascot-body { width: 54px; height: 80px; } }
-/* Chain swinging: a full-screen layer above the page that never takes clicks */
-.swing-layer { position: fixed; inset: 0; z-index: 41; pointer-events: none; overflow: visible;
-  filter: drop-shadow(0 6px 6px rgba(0,0,0,.4)); }
-.swing-layer g, .swing-layer image { transform-box: fill-box; }
-/* dangling legs kick a little while hanging */
-.m-hang .m-leg-l { animation: m-kick .48s ease-in-out infinite alternate; }
-.m-hang .m-leg-r { animation: m-kick .48s ease-in-out infinite alternate-reverse; }
-.m-hang .m-arm-l { animation: m-kick .6s ease-in-out infinite alternate; }
-@keyframes m-kick { from { rotate: -14deg; } to { rotate: 16deg; } }
-@media (prefers-reduced-motion: reduce) { .mascot-svg, .mascot-svg * { animation: none !important; } .mascot { transition: none; } }
-@media print { .mascot { display: none; } }
+/* The MADBOY monkey crew (components/MonkeyMascot.tsx). One fixed, clipped layer that
+   never takes clicks; the component animates everything inside it frame by frame. */
+.mascot-crew { position: fixed; inset: 0; z-index: 40; pointer-events: none; overflow: hidden; contain: strict; }
+.mascot { position: absolute; left: 0; top: 0; width: 76px; height: 112px; will-change: transform; }
+.mascot-svg { display: block; overflow: visible; filter: drop-shadow(0 0 8px rgba(94,242,224,.16)); }
+@media (max-width: 560px) { .mascot { width: 54px; height: 80px; } }
+/* Chain swinging: gold chains and the swinger, drawn over the walkers */
+.swing-layer { position: absolute; inset: 0; display: block; }
+@media print { .mascot-crew { display: none; } }
