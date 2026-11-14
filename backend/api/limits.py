@@ -15,6 +15,7 @@ the most upstream calls, so it has its own, much smaller bucket.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import math
 import os
@@ -44,6 +45,7 @@ RULES = {
     "demo": Rule(30, 10),
     "admin_auth": Rule(5, 10),                                         # wrong admin passwords
 }
+DEFAULTS = {k: Rule(r.per_minute, r.burst) for k, r in RULES.items()}   # before any admin change
 PARTNER_MULTIPLIER = _env_int("RATE_PARTNER_MULTIPLIER", 20)            # API-key holders get more
 
 
@@ -74,6 +76,19 @@ def client_of(req: Request) -> tuple[str, bool]:
     return f"ip:{req.client.host if req.client else 'unknown'}", False
 
 
+def visitor_id(who: str) -> tuple[str, str]:
+    """(scrambled id, label) for the admin panel: partners by name, everyone
+    else by a one-way scramble of their IP that can't be turned back into it."""
+    if who.startswith("key:"):
+        return who, "Partner · " + who[4:]
+    salt = (os.environ.get("ADMIN_TOKEN") or "chainscope").encode()
+    return "v-" + hmac.new(salt, who.encode(), hashlib.sha256).hexdigest()[:10], "Visitor"
+
+
+def visitor_of(req: Request) -> tuple[str, str]:
+    return visitor_id(client_of(req)[0])
+
+
 @dataclass
 class Bucket:
     tokens: float
@@ -97,12 +112,15 @@ def take(req: Request, kind: str) -> None:
         b = _buckets[f"{kind}|{who}"] = Bucket(cap, now)
     b.tokens = min(cap, b.tokens + (now - b.at) * rate)
     b.at = now
+    from core import monitor
+    vid, label = visitor_id(who)
     if b.tokens < 1:
-        from core import monitor
         monitor.rate_limited(kind)
+        monitor.seen(vid, label, kind, limited=True)
         wait = max(1, math.ceil((1 - b.tokens) / rate))
         raise HTTPException(429, _message(kind, wait), headers={"Retry-After": str(wait)})
     b.tokens -= 1
+    monitor.seen(vid, label, kind)
     if now - _last_sweep > 600:   # forget idle callers now and then
         _last_sweep = now
         for k in [k for k, v in _buckets.items() if now - v.at > 3600]:

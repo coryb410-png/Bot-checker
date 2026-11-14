@@ -14,7 +14,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.limits import RULES, take
+from api.limits import RULES, take, visitor_of
 from pydantic import BaseModel, Field
 
 from classifiers.spam import counts as spam_counts, is_spam_tx
@@ -53,6 +53,10 @@ async def api_gate(request: Request, call_next):
         request.scope["raw_path"] = path.encode()
     if path.startswith("/api/") and path not in ("/api/health", "/api/docs", "/api/openapi.json") \
             and request.method != "OPTIONS":
+        from core import monitor as _m
+        if not path.startswith("/api/admin/") and _m.blocked and _m.is_blocked(visitor_of(request)[0]):
+            return JSONResponse({"detail": "Access from your connection is paused for now. Please try again later."},
+                                status_code=403)
         try:
             take(request, "request")
         except HTTPException as e:

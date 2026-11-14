@@ -8,6 +8,7 @@ memory so the project runs with zero setup. Swap in database/postgres.py
 from __future__ import annotations
 
 import asyncio
+import time
 import secrets
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -118,6 +119,11 @@ def _scanner(chain: Chain):
     return SolanaScanner()
 
 
+NETWORK_NAMES = {"bitcoin": "Bitcoin", "ethereum": "Ethereum", "solana": "Solana", "cardano": "Cardano",
+                 "xrp": "XRP Ledger", "dogecoin": "Dogecoin", "base": "Base", "arbitrum": "Arbitrum",
+                 "optimism": "Optimism", "polygon": "Polygon", "robinhood": "Robinhood Chain"}
+
+
 async def run_scan(p: Portfolio, prices: PriceService) -> None:
     from core import monitor
     monitor.scan_begun(p.id, [c.value for c, _ in p.addresses])
@@ -129,6 +135,10 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
         async def one(chain: Chain, addr: str) -> list[NormalizedTx]:
             out = []
             key = progress_key(chain, addr)
+            if chain.value in monitor.disabled_networks:   # switched off in the admin panel
+                p.network_errors[key] = f"{NETWORK_NAMES.get(chain.value, chain.value)} is turned off for now. Other networks were scanned."
+                return out
+            started, ok = time.monotonic(), True
             try:
                 async for tx in _scanner(chain).scan(addr, p.cursors.get(key)):
                     out.append(tx)
@@ -138,8 +148,10 @@ async def run_scan(p: Portfolio, prices: PriceService) -> None:
             except Exception as e:
                 # One network failing (an outage, a missing key) must not sink
                 # the others. Keep what was read and report the problem.
+                ok = False
                 p.network_errors[key] = str(e)[:300]
                 monitor.provider_error(chain.value, str(e))
+            monitor.network_timed(chain.value, time.monotonic() - started, ok)
             return out
 
         results = await asyncio.gather(*(one(c, a) for c, a in p.addresses))
@@ -208,7 +220,8 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
             p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
             return []
 
-    wallets = [(c, a) for c, a in p.addresses if c in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP, Chain.DOGECOIN) + EVM_EXTRAS]
+    from core import monitor
+    wallets = [(c, a) for c, a in p.addresses if c.value not in monitor.disabled_networks and c in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP, Chain.DOGECOIN) + EVM_EXTRAS]
     for (_, addr), owned in zip(wallets, await asyncio.gather(*(owned_by(c, a) for c, a in wallets))):
         owned_by_key.update({a.key: a for a in owned})
         p.nft_owner.update({a.key: addr for a in owned})

@@ -20,11 +20,21 @@ type Overview = {
   keys: { name: string; what: string; set: boolean }[];
   partners: string[];
   cors_origins: string[];
+  settings_saved: boolean;
+  health_interval_minutes: number;
 };
+type Provider = { name: string; ok: boolean; ms: number | null; error?: string | null; uptime: number;
+                  checks: number; outages: number; recent: number[] };
+type Health = { at: string | null; interval_minutes: number; providers: Provider[] };
+type Usage = { hours: { hour: string; started: number; finished: number; failed: number }[];
+               networks: { network: string; scans: number; errors: number; avg_seconds: number | null;
+                           slowest_seconds: number | null; typical_seconds: number | null }[] };
+type NetSwitch = { network: string; name: string; on: boolean };
+type Visitor = { id: string; label: string; requests: number; scans: number; limited: number; last_seen_seconds: number; blocked: boolean };
+type Visitors = { visitors: Visitor[]; blocks: { id: string; label: string; minutes_left: number }[] };
 type ScanRow = { id: string; status: string; demo: boolean; created_at: string; networks: Record<string, number>;
                  addresses: number; transactions: number; nfts: number; network_errors: number; error: string | null };
 type Event = { at: string; kind: string; message: string };
-type Check = { name: string; ok: boolean; ms: number; error?: string };
 
 const TOKEN_KEY = "chainscope-admin";
 const LIMIT_NAMES: Record<string, string> = {
@@ -47,7 +57,10 @@ export default function AdminPage() {
   const [ov, setOv] = useState<Overview | null>(null);
   const [scans, setScans] = useState<ScanRow[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
-  const [checks, setChecks] = useState<Check[] | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [nets, setNets] = useState<NetSwitch[]>([]);
+  const [vis, setVis] = useState<Visitors | null>(null);
   const [checking, setChecking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [partner, setPartner] = useState("");
@@ -75,8 +88,10 @@ export default function AdminPage() {
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const [o, s, e] = await Promise.all([call<Overview>("overview"), call<ScanRow[]>("scans"), call<Event[]>("events")]);
-      setOv(o); setScans(s); setEvents(e); setError(null);
+      const [o, s, e, h, u, n, v] = await Promise.all([
+        call<Overview>("overview"), call<ScanRow[]>("scans"), call<Event[]>("events"), call<Health>("health"),
+        call<Usage>("usage"), call<NetSwitch[]>("networks"), call<Visitors>("visitors")]);
+      setOv(o); setScans(s); setEvents(e); setHealth(h); setUsage(u); setNets(n); setVis(v); setError(null);
       setMaintMsg((m) => m || o.maintenance.message);
     } catch (err) {
       setError((err as Error).message);
@@ -146,6 +161,13 @@ export default function AdminPage() {
           </div>
         )}
 
+        {!ov.settings_saved && (
+          <div className="panel" style={{ borderColor: "var(--warn)", fontSize: 14 }}>
+            Settings you change here (limits, maintenance, networks, blocks) <strong>reset when the server restarts</strong>, because the
+            Key Value store (CACHE_URL) isn&apos;t reachable right now.
+          </div>
+        )}
+
         <section className="grid4">
           <Stat label="Up for" value={duration(ov.uptime_seconds)} sub={`since ${new Date(ov.started_at).toLocaleString()}${ov.version ? ` · build ${ov.version}` : ""}`} />
           <Stat label="Scans in memory" value={String(ov.scans.in_memory)} sub={`${busy} running · ${ov.scans.transactions_in_memory.toLocaleString()} transactions`} />
@@ -158,24 +180,52 @@ export default function AdminPage() {
           <div className="row" style={{ justifyContent: "space-between" }}>
             <h2>Data providers</h2>
             <button className="btn" disabled={checking}
-              onClick={async () => { setChecking(true); try { setChecks(await call<Check[]>("health", { method: "POST" })); } catch (e) { setNotice((e as Error).message); } setChecking(false); }}>
-              {checking ? "Checking…" : "Run health check"}
+              onClick={async () => { setChecking(true); try { setHealth(await call<Health>("health", { method: "POST" })); } catch (e) { setNotice((e as Error).message); } setChecking(false); }}>
+              {checking ? "Checking…" : "Check now"}
             </button>
           </div>
-          {checks ? (
+          <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>
+            {health?.interval_minutes ? `Checked automatically every ${health.interval_minutes} minutes` : "Automatic checks are off (HEALTH_CHECK_MINUTES=0)"}
+            {health?.at ? ` · last check ${since(health.at)}` : " · first check runs shortly after the server starts"}. Uptime covers the last 24 hours while the server was awake.
+          </p>
+          {health && health.providers.length > 0 && (
             <div className="scroll"><table>
-              <thead><tr><th>Provider</th><th>Status</th><th className="r">Time</th></tr></thead>
-              <tbody>{checks.map((c) => (
+              <thead><tr><th>Provider</th><th>Now</th><th className="r">Uptime</th><th className="r">Outages</th><th>Recent checks</th><th className="r">Time</th></tr></thead>
+              <tbody>{[...health.providers].sort((a, b) => Number(a.ok) - Number(b.ok) || a.uptime - b.uptime).map((c) => (
                 <tr key={c.name}><td>{c.name}</td>
                   <td>{c.ok ? <span className="gain">● Working</span> : <span className="loss">● {c.error ?? "Failed"}</span>}</td>
-                  <td className="r num">{c.ms} ms</td></tr>
+                  <td className="r num">{c.uptime}%</td>
+                  <td className="r num">{c.outages}</td>
+                  <td><Dots recent={c.recent} /></td>
+                  <td className="r num">{c.ms != null ? `${c.ms} ms` : "–"}</td></tr>
               ))}</tbody>
             </table></div>
-          ) : <p style={{ color: "var(--muted)", margin: 0 }}>Checks every network and price source in about 10 seconds.</p>}
+          )}
           {Object.keys(ov.provider_errors).length > 0 && (
             <p style={{ margin: 0, color: "var(--muted)" }}>Errors during scans since start: {Object.entries(ov.provider_errors).map(([k, v]) => `${k} ${v}`).join(" · ")}</p>
           )}
         </section>
+
+        <section className="panel" style={{ display: "grid", gap: 12 }}>
+          <h2>Networks</h2>
+          <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>
+            Turn a network off if its provider is failing. Scans skip it and tell visitors it&apos;s off for now; every other network still scans.
+          </p>
+          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))" }}>
+            {nets.map((n) => (
+              <div key={n.network} className="row" style={{ justifyContent: "space-between", gap: 8, flexWrap: "nowrap",
+                padding: "8px 10px", border: "1px solid var(--line)", borderRadius: 10, background: n.on ? undefined : "var(--sunk)" }}>
+                <span className={`chip ${n.network}`} style={{ opacity: n.on ? 1 : 0.55 }}>{n.name}</span>
+                <span className="seg" role="group" aria-label={`${n.name} on or off`}>
+                  <button aria-pressed={n.on} onClick={() => !n.on && act(() => call("networks", { method: "PUT", body: JSON.stringify({ network: n.network, on: true }) }), `${n.name} turned on.`)}>On</button>
+                  <button aria-pressed={!n.on} onClick={() => n.on && act(() => call("networks", { method: "PUT", body: JSON.stringify({ network: n.network, on: false }) }), `${n.name} turned off.`)}>Off</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {usage && <UsagePanel usage={usage} />}
 
         <section className="panel" style={{ display: "grid", gap: 12 }}>
           <h2>Settings and keys</h2>
@@ -224,11 +274,12 @@ export default function AdminPage() {
         <section style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
           <div className="panel" style={{ display: "grid", gap: 12, alignContent: "start" }}>
             <h2>Rate limits</h2>
-            <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>Per person. Changes last until the server restarts; make them permanent with the RATE_ settings in Render. Partner keys get {ov.partner_multiplier}× these.</p>
+            <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>Per person. Partner keys get {ov.partner_multiplier}× these.</p>
             {Object.entries(ov.limits).filter(([k]) => k !== "admin_auth").map(([k, r]) => (
               <LimitRow key={k} kind={k} label={LIMIT_NAMES[k] ?? k} rule={r}
                 onSave={(per_minute, burst) => act(() => call("limits", { method: "PUT", body: JSON.stringify({ kind: k, per_minute, burst }) }), "Limit updated.")} />
             ))}
+            <button className="btn" style={{ justifySelf: "start" }} onClick={() => act(() => call("limits", { method: "DELETE" }), "Rate limits reset to the defaults.")}>Reset to defaults</button>
           </div>
 
           <div className="panel" style={{ display: "grid", gap: 12, alignContent: "start" }}>
@@ -267,6 +318,11 @@ export default function AdminPage() {
             )}
           </div>
         </section>
+
+        {vis && <VisitorsPanel vis={vis}
+          onBlock={(v, hours) => act(() => call("blocks", { method: "POST", body: JSON.stringify({ id: v.id, hours }) }),
+            `Blocked ${v.label === "Visitor" ? v.id : v.label} for ${hours >= 24 ? `${hours / 24} day${hours > 24 ? "s" : ""}` : `${hours} hour`}.`)}
+          onUnblock={(id) => act(() => call(`blocks/${encodeURIComponent(id)}`, { method: "DELETE" }), "Unblocked.")} />}
 
         <section className="panel" style={{ display: "grid", gap: 12 }}>
           <h2>Recent activity</h2>
@@ -314,5 +370,148 @@ function LimitRow({ kind, label, rule, onSave }: { kind: string; label: string; 
         }}>Save</button>
       </div>
     </div>
+  );
+}
+
+function Dots({ recent }: { recent: number[] }) {
+  // One dot per check, oldest on the left; a red dot is a failed check
+  return (
+    <span aria-label={`${recent.filter((r) => !r).length} failed of the last ${recent.length} checks`}
+      style={{ display: "inline-flex", gap: 2, alignItems: "center", flexWrap: "nowrap" }}>
+      {recent.map((ok, i) => (
+        <span key={i} style={{ width: 4, height: 12, borderRadius: 2, background: ok ? "var(--gain)" : "var(--loss)", opacity: ok ? 0.75 : 1 }} />
+      ))}
+    </span>
+  );
+}
+
+function hourLabel(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "numeric" });
+}
+
+function UsagePanel({ usage }: { usage: Usage }) {
+  const [hover, setHover] = useState<number | null>(null);
+  const hours = usage.hours;
+  const max = Math.max(1, ...hours.map((h) => h.started));
+  const W = 720, H = 160, padL = 28, padB = 22, gap = 2;
+  const bw = (W - padL) / hours.length;
+  const y = (v: number) => (H - padB) - (v / max) * (H - padB - 8);
+  const ticks = max <= 4 ? Array.from({ length: max + 1 }, (_, i) => i) : [0, Math.round(max / 2), max];
+  const total = hours.reduce((a, h) => a + h.started, 0);
+  const slowest = Math.max(1, ...usage.networks.map((n) => n.typical_seconds ?? 0));
+  const h = hover != null ? hours[hover] : null;
+  return (
+    <section className="panel" style={{ display: "grid", gap: 14 }}>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2>Usage</h2>
+        <span style={{ color: "var(--muted)", fontSize: 13 }}>{total} scan{total === 1 ? "" : "s"} in the last 24 hours</span>
+      </div>
+      <div style={{ position: "relative" }}>
+        <span className="eyebrow">Scans started per hour</span>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", marginTop: 6 }}
+          role="img" aria-label="Scans started per hour over the last 24 hours" onMouseLeave={() => setHover(null)}>
+          {ticks.map((t) => (
+            <g key={t}>
+              <line x1={padL} x2={W} y1={y(t)} y2={y(t)} stroke="var(--line)" strokeWidth={t === 0 ? 1 : 0.6} strokeDasharray={t === 0 ? undefined : "2 4"} />
+              <text x={padL - 6} y={y(t) + 4} textAnchor="end" fontSize="10" fill="var(--muted)" fontFamily="var(--mono)">{t}</text>
+            </g>
+          ))}
+          {hours.map((hr, i) => {
+            const x = padL + i * bw + gap / 2, w = Math.max(1, bw - gap);
+            const top = y(hr.started), base = y(0);
+            const failTop = y(hr.failed);
+            return (
+              <g key={hr.hour}>
+                {hr.started > 0 && <path d={`M${x},${base} V${top + 3} Q${x},${top} ${x + 3},${top} H${x + w - 3} Q${x + w},${top} ${x + w},${top + 3} V${base} Z`}
+                  fill="var(--gold)" opacity={hover == null || hover === i ? 1 : 0.45} />}
+                {hr.failed > 0 && <rect x={x} y={failTop} width={w} height={base - failTop} fill="var(--loss)" opacity={0.9} />}
+                {i % 4 === 0 && <text x={x + w / 2} y={H - 6} textAnchor="middle" fontSize="10" fill="var(--muted)" fontFamily="var(--mono)">{hourLabel(hr.hour)}</text>}
+                <rect x={padL + i * bw} y={0} width={bw} height={H - padB} fill="transparent" onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)} />
+              </g>
+            );
+          })}
+        </svg>
+        {h && hover != null && (
+          <div className="panel" role="status" style={{ position: "absolute", top: 18, left: `${Math.min(80, ((padL + hover * bw) / W) * 100)}%`,
+            padding: "8px 10px", fontSize: 12, pointerEvents: "none", whiteSpace: "nowrap", zIndex: 2 }}>
+            <strong>{hourLabel(h.hour)}</strong><br />
+            {h.started} started · {h.finished} finished{h.failed ? <> · <span className="loss">{h.failed} failed</span></> : null}
+          </div>
+        )}
+        <div className="row" style={{ gap: 14, fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "var(--gold)", marginRight: 6, verticalAlign: -1 }} />Scans started</span>
+          <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "var(--loss)", marginRight: 6, verticalAlign: -1 }} />Of those, failed</span>
+        </div>
+      </div>
+      {usage.networks.length > 0 && (
+        <div className="scroll"><table>
+          <thead><tr><th>Network</th><th className="r">Scans</th><th>Typical scan time</th><th className="r">Slowest</th><th className="r">Errors</th></tr></thead>
+          <tbody>{usage.networks.map((n) => (
+            <tr key={n.network}>
+              <td><span className={`chip ${n.network}`}>{n.network}</span></td>
+              <td className="r num">{n.scans}</td>
+              <td>{n.typical_seconds != null ? (
+                <span className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+                  <span style={{ display: "inline-block", height: 6, borderRadius: 3, background: "var(--gold)", width: `${Math.max(3, (n.typical_seconds / slowest) * 120)}px` }} />
+                  <span className="num">{n.typical_seconds}s</span>
+                </span>) : <span style={{ color: "var(--muted)" }}>–</span>}</td>
+              <td className="r num">{n.slowest_seconds != null ? `${n.slowest_seconds}s` : "–"}</td>
+              <td className="r num">{n.errors ? <span className="loss">{n.errors}</span> : 0}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+      <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>Counts since the server last started; nothing is saved.</p>
+    </section>
+  );
+}
+
+function VisitorsPanel({ vis, onBlock, onUnblock }: { vis: Visitors; onBlock: (v: Visitor, hours: number) => void; onUnblock: (id: string) => void }) {
+  const [hours, setHours] = useState(24);
+  return (
+    <section className="panel" style={{ display: "grid", gap: 12 }}>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2>Visitors</h2>
+        <span className="row" style={{ gap: 8, fontSize: 13, color: "var(--muted)" }}>Block for
+          <span className="seg" role="group" aria-label="Block length">
+            {[[1, "1 hour"], [24, "1 day"], [168, "7 days"]].map(([h, l]) => (
+              <button key={h} aria-pressed={hours === h} onClick={() => setHours(h as number)}>{l}</button>
+            ))}
+          </span>
+        </span>
+      </div>
+      <p style={{ margin: 0, color: "var(--muted)", fontSize: 13 }}>
+        The busiest visitors in the last hour, by a scrambled ID (never their IP). Blocking stops all their requests until it runs out.
+        People on the same Wi-Fi or office network share one ID.
+      </p>
+      {vis.visitors.length === 0 ? <p style={{ color: "var(--muted)", margin: 0 }}>No visitors in the last hour.</p> : (
+        <div className="scroll" style={{ maxHeight: 380 }}><table>
+          <thead><tr><th>Visitor</th><th className="r">Requests</th><th className="r">Scans</th><th className="r">Rate limited</th><th className="r">Last seen</th><th></th></tr></thead>
+          <tbody>{vis.visitors.map((v) => (
+            <tr key={v.id}>
+              <td><span className="mono">{v.label === "Visitor" ? v.id : v.label}</span></td>
+              <td className="r num">{v.requests}</td>
+              <td className="r num">{v.scans}</td>
+              <td className="r num">{v.limited ? <span className="loss">{v.limited}</span> : 0}</td>
+              <td className="r num">{v.last_seen_seconds < 60 ? "now" : `${Math.round(v.last_seen_seconds / 60)}m ago`}</td>
+              <td className="r">{v.blocked ? <span className="loss">Blocked</span> :
+                <button className="btn" onClick={() => { if (confirm(`Block ${v.label === "Visitor" ? v.id : v.label}?`)) onBlock(v, hours); }}>Block</button>}</td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      )}
+      {vis.blocks.length > 0 && (
+        <div style={{ display: "grid", gap: 6 }}>
+          <span className="eyebrow">Blocked now</span>
+          {vis.blocks.map((b) => (
+            <div key={b.id} className="row" style={{ justifyContent: "space-between", gap: 8 }}>
+              <span><span className="mono">{b.label === "Visitor" ? b.id : b.label}</span>
+                <span style={{ color: "var(--muted)", fontSize: 13 }}> · {b.minutes_left >= 120 ? `${Math.round(b.minutes_left / 60)}h` : `${b.minutes_left}m`} left</span></span>
+              <button className="btn" onClick={() => onUnblock(b.id)}>Unblock</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

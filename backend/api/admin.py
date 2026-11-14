@@ -18,7 +18,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api import limits
-from core import monitor
+from core import monitor, settings
 from core.models import Chain
 
 # Settings whose presence the panel reports (never their values)
@@ -61,6 +61,23 @@ class CacheBody(BaseModel):
     target: str = "all"   # prices | floors | all
 
 
+class NetworkBody(BaseModel):
+    network: str
+    on: bool
+
+
+class BlockBody(BaseModel):
+    id: str = Field(pattern=r"^(v-[0-9a-f]{10}|key:[a-z0-9-]{2,32})$")
+    hours: float = Field(gt=0, le=24 * 30)
+
+
+def health_interval_minutes() -> float:
+    try:
+        return max(0.0, float(os.environ.get("HEALTH_CHECK_MINUTES", "5")))
+    except ValueError:
+        return 5.0
+
+
 class PartnerBody(BaseModel):
     name: str = Field(min_length=2, max_length=32, pattern=r"^[a-z0-9-]+$")
 
@@ -91,6 +108,8 @@ def register(app, store, prices) -> dict:
             "partner_multiplier": limits.PARTNER_MULTIPLIER,
             "keys": [{"name": n, "what": w, "set": bool(os.environ.get(n))} for n, w in KEYS],
             "partners": partners,
+            "settings_saved": settings.available(prices),
+            "health_interval_minutes": health_interval_minutes(),
             "cors_origins": [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()],
         }
 
@@ -133,10 +152,96 @@ def register(app, store, prices) -> dict:
         _auth(req)
         return list(monitor.events)[-max(1, min(limit, 300)):][::-1]   # newest first
 
+    def _health_view():
+        return {"at": monitor.health_last["at"], "interval_minutes": health_interval_minutes(),
+                "providers": monitor.health_summary()}
+
+    @app.get("/api/admin/health")
+    async def health_status(req: Request):
+        _auth(req)
+        return _health_view()
+
     @app.post("/api/admin/health")
     async def health_check(req: Request):
         _auth(req)
-        return await _health(prices)
+        monitor.health_ran(await _health(prices))
+        return _health_view()
+
+    @app.get("/api/admin/usage")
+    async def usage(req: Request):
+        _auth(req)
+        return monitor.usage()
+
+    @app.get("/api/admin/networks")
+    async def networks(req: Request):
+        _auth(req)
+        from portfolio.service import NETWORK_NAMES
+        return [{"network": c.value, "name": NETWORK_NAMES.get(c.value, c.value),
+                 "on": c.value not in monitor.disabled_networks} for c in Chain]
+
+    @app.put("/api/admin/networks")
+    async def set_network(body: NetworkBody, req: Request):
+        _auth(req)
+        if body.network not in {c.value for c in Chain}:
+            raise HTTPException(400, "Unknown network.")
+        (monitor.disabled_networks.discard if body.on else monitor.disabled_networks.add)(body.network)
+        monitor.record("admin", f"Turned {body.network} {'on' if body.on else 'off'}")
+        await settings.save(prices)
+        return {"ok": True, "off": sorted(monitor.disabled_networks)}
+
+    @app.get("/api/admin/visitors")
+    async def visitors(req: Request):
+        _auth(req)
+        return {"visitors": monitor.top_visitors(), "blocks": monitor.blocks()}
+
+    @app.post("/api/admin/blocks")
+    async def block(body: BlockBody, req: Request):
+        _auth(req)
+        if body.id == limits.visitor_of(req)[0]:
+            raise HTTPException(400, "That's you. Blocking it would lock you out of the website.")
+        label = monitor.visitors.get(body.id, {}).get("label") or ("Partner · " + body.id[4:] if body.id.startswith("key:") else "Visitor")
+        monitor.blocked[body.id] = {"until": time.time() + body.hours * 3600, "label": label}
+        monitor.record("admin", f"Blocked {label} {body.id if body.id.startswith('v-') else ''} for {body.hours:g}h".replace("  ", " "))
+        await settings.save(prices)
+        return {"ok": True}
+
+    @app.delete("/api/admin/blocks/{vid}")
+    async def unblock(vid: str, req: Request):
+        _auth(req)
+        if monitor.blocked.pop(vid, None) is None:
+            raise HTTPException(404, "Not blocked.")
+        monitor.record("admin", "Unblocked a visitor")
+        await settings.save(prices)
+        return {"ok": True}
+
+    @app.delete("/api/admin/limits")
+    async def reset_limits(req: Request):
+        _auth(req)
+        for k, r in limits.DEFAULTS.items():
+            limits.RULES[k] = limits.Rule(r.per_minute, r.burst)
+        limits.reset()
+        monitor.record("admin", "Rate limits reset to the defaults")
+        await settings.save(prices)
+        return {"ok": True}
+
+    async def _health_loop():
+        await asyncio.sleep(20)   # let the server finish starting
+        while True:
+            minutes = health_interval_minutes()
+            if minutes <= 0:
+                return
+            try:
+                monitor.health_ran(await _health(prices))
+            except Exception as e:   # never let the checker die
+                monitor.record("health", f"Health check crashed: {e}")
+            await asyncio.sleep(minutes * 60)
+
+    async def on_startup():
+        await settings.load(prices)
+        app.state.health_task = asyncio.create_task(_health_loop())
+
+    if hasattr(app, "on_event"):
+        app.on_event("startup")(on_startup)
 
     @app.put("/api/admin/limits")
     async def set_limits(body: LimitsBody, req: Request):
@@ -145,8 +250,10 @@ def register(app, store, prices) -> dict:
             raise HTTPException(400, "Unknown limit.")
         limits.RULES[body.kind] = limits.Rule(body.per_minute, body.burst)
         limits.reset()
-        monitor.record("admin", f"Changed the {body.kind} limit to {body.per_minute}/min, burst {body.burst} (until restart)")
-        return {"ok": True}
+        saved = await settings.save(prices)
+        monitor.record("admin", f"Changed the {body.kind} limit to {body.per_minute:g}/min, burst {body.burst}"
+                       + ("" if saved else " (until restart)"))
+        return {"ok": True, "saved": saved}
 
     @app.put("/api/admin/maintenance")
     async def set_maintenance(body: MaintenanceBody, req: Request):
@@ -155,6 +262,7 @@ def register(app, store, prices) -> dict:
         if body.message:
             monitor.maintenance["message"] = body.message.strip()
         monitor.record("admin", "Maintenance mode " + ("ON: new scans paused" if body.on else "OFF"))
+        await settings.save(prices)
         return monitor.maintenance
 
     @app.post("/api/admin/cache/clear")
@@ -192,7 +300,9 @@ def register(app, store, prices) -> dict:
         monitor.record("admin", f"Generated a partner key for {body.name}")
         return {"name": body.name, "key": key, "api_client_keys": line}
 
-    return {"overview": overview, "scans": scans, "delete_scan": delete_scan, "delete_all": delete_all,
+    return {"overview": overview, "scans": scans, "health_status": health_status, "health_check": health_check,
+            "usage": usage, "networks": networks, "set_network": set_network, "visitors": visitors,
+            "block": block, "unblock": unblock, "reset_limits": reset_limits, "on_startup": on_startup, "delete_scan": delete_scan, "delete_all": delete_all,
             "events": events, "set_limits": set_limits, "set_maintenance": set_maintenance,
             "clear_cache": clear_cache, "partner_key": partner_key}
 
