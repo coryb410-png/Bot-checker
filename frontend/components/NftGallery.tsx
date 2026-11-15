@@ -10,7 +10,7 @@ const PREVIEW = 8;
 // "Wegen #4664" -> "Wegen", "Solana Bear#63" -> "Solana Bear", "MONKI 145" -> "MONKI"
 const baseName = (n: string | null) => (n ?? "").replace(/\s*#?\s*\d+\s*$/, "").trim();
 
-interface Group { key: string; name: string; chain: string; items: Holding[]; value: number; floor: Holding["floor"] }
+interface Group { key: string; name: string; chain: string; items: Holding[]; value: number; paid: number; floor: Holding["floor"] }
 
 function groupNfts(nfts: Holding[]): Group[] {
   const by = new Map<string, Holding[]>();
@@ -22,10 +22,15 @@ function groupNfts(nfts: Holding[]): Group[] {
     const counts = new Map<string, number>();
     for (const i of items) { const b = baseName(i.name); if (b) counts.set(b, (counts.get(b) ?? 0) + 1); }
     const name = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || items[0].asset || "Unnamed collection";
-    items.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", undefined, { numeric: true }));
+    // Most valuable first (then what was paid), name order among equals
+    items.sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0)
+      || (Number(b.cost_basis) || 0) - (Number(a.cost_basis) || 0)
+      || (a.name ?? "").localeCompare(b.name ?? "", undefined, { numeric: true }));
     return { key, name, chain: items[0].chain, items, floor: items.find((i) => i.floor)?.floor ?? null,
-             value: items.reduce((s, i) => s + (Number(i.value) || 0), 0) };
-  }).sort((a, b) => b.value - a.value || b.items.length - a.items.length || a.name.localeCompare(b.name));
+             value: items.reduce((s, i) => s + (Number(i.value) || 0), 0),
+             paid: items.reduce((s, i) => s + (Number(i.cost_basis) || 0), 0) };
+  // Collections by value at floor; ones with no floor price by what was paid for them
+  }).sort((a, b) => b.value - a.value || b.paid - a.paid || b.items.length - a.items.length || a.name.localeCompare(b.name));
 }
 
 export default function NftGallery({ holdings }: { holdings: Holding[] }) {

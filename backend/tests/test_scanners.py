@@ -489,7 +489,7 @@ def test_robinhood_held_nfts_pages_and_cleans_up():
     bear, reef, yood = nfts
     assert bear.chain.value == "robinhood" and bear.is_nft and bear.token_id == "2777"
     assert bear.contract == "0x0084e3f586dfd424b959e80537208cef4cbcee21" and bear.name == "Robinhood Bear #2777"
-    assert bear.image == "https://dweb.link/ipfs/bafkreidah"
+    assert bear.image == "https://ipfs.io/ipfs/bafkreidah"
     assert reef.name == "Reefers #538" and reef.image == "https://ipfs.io/ipfs/bafyreef"
     assert yood.name == "Yoodles Reborn #9" and yood.image is None and yood.spam
 
@@ -543,3 +543,43 @@ def test_robinhood_uses_keyed_blockscout_api_and_explains_blocks(monkeypatch):
     s.http = Blocked()
     with pytest.raises(ProviderError, match="BLOCKSCOUT_API_KEY"):
         asyncio.run(s.held_nfts("0xabc"))
+
+
+def test_opensea_floors_for_robinhood_and_l2s(monkeypatch):
+    import asyncio
+    from core.models import Asset, Chain
+    from pricing.floors import FloorService, collection_key
+
+    calls = []
+
+    class OS:
+        async def get(self, path, params=None):
+            calls.append(path)
+            if path.startswith("/chain/robinhood/contract/0xbear/nfts/"):
+                return {"nft": {"collection": "robinhood-bears", "image_url": "https://i.seadn.io/x.png"}}
+            if path == "/collections/robinhood-bears/stats":
+                return {"total": {"floor_price": 0.0042, "floor_price_symbol": "ETH"}}
+            if path.startswith("/chain/polygon/"):
+                return {"nft": {"collection": "polypals"}}
+            if path == "/collections/polypals/stats":
+                return {"total": {"floor_price": 12, "floor_price_symbol": "POL"}}   # not ETH: not valued
+            raise AssertionError(path)
+
+    nft = lambda chain, c, t: Asset(chain, "X", contract=c, decimals=0, is_nft=True, token_id=t, collection=c)
+    bears = [nft(Chain.ROBINHOOD, "0xbear", "1"), nft(Chain.ROBINHOOD, "0xbear", "2")]
+    pal = nft(Chain.POLYGON, "0xpal", "7")
+    out = asyncio.run(FloorService(opensea=OS()).floors_for(bears + [pal]))
+    f = out[collection_key(bears[0])]
+    assert f.currency == "ETH" and str(f.amount) == "0.0042" and f.source == "OpenSea"
+    assert f.url == "https://opensea.io/collection/robinhood-bears"
+    assert collection_key(pal) not in out
+    assert sum(1 for c in calls if c.startswith("/chain/robinhood")) == 1   # one lookup per collection
+
+
+def test_opensea_floors_skipped_without_key(monkeypatch):
+    import asyncio
+    from core.models import Asset, Chain
+    from pricing.floors import FloorService
+    monkeypatch.delenv("OPENSEA_API_KEY", raising=False)
+    a = Asset(Chain.ROBINHOOD, "X", contract="0xbear", decimals=0, is_nft=True, token_id="1", collection="0xbear")
+    assert asyncio.run(FloorService().floors_for([a])) == {}

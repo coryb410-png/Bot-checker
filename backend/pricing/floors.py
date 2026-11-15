@@ -8,6 +8,9 @@
              the existing ALCHEMY_API_KEY.
   Cardano  → OpenCNFT (no key; their terms ask for a credit link, which the
              gallery shows next to each floor). jpg.store closed its API in 2026.
+  Robinhood Chain, Base, Arbitrum, Optimism, Polygon → OpenSea API v2
+             (needs OPENSEA_API_KEY): an NFT's contract + token id gives its
+             collection slug, and the slug's stats give the floor.
   XRP      → XRP Ledger Services collection stats (no key), per issuer and
              collection number (taxon); floors are given in drops.
 
@@ -27,6 +30,10 @@ from core.models import Asset, Chain
 from scanners.base import Http, ProviderError, env
 
 log = logging.getLogger("chainscope.floors")
+
+# OpenSea's names for the networks it prices for us
+OPENSEA_CHAINS = {Chain.ROBINHOOD: "robinhood", Chain.BASE: "base", Chain.ARBITRUM: "arbitrum",
+                  Chain.OPTIMISM: "optimism", Chain.POLYGON: "polygon"}
 LAMPORTS = Decimal(1_000_000_000)   # per SOL
 LOVELACE = Decimal(1_000_000)       # per ADA
 CACHE_SECONDS = 15 * 60
@@ -50,11 +57,12 @@ def collection_key(a: Asset) -> str:
 
 class FloorService:
     def __init__(self, me: Http | None = None, alchemy_nft: Http | None = None,
-                 opencnft: Http | None = None, xrpldata: Http | None = None):
+                 opencnft: Http | None = None, xrpldata: Http | None = None, opensea: Http | None = None):
         self._me = me
         self._alchemy = alchemy_nft
         self._opencnft = opencnft
         self._xrpldata = xrpldata
+        self._opensea = opensea
         self._symbols: dict[str, str | None] = {}            # collection key -> ME symbol
         self._floors: dict[str, tuple[float, Floor | None]] = {}   # cache key -> (time, floor)
 
@@ -79,6 +87,13 @@ class FloorService:
         return self._opencnft
 
     @property
+    def opensea(self) -> Http:
+        if self._opensea is None:
+            self._opensea = Http(env("OPENSEA_API_URL", "https://api.opensea.io/api/v2"), rate_per_sec=3,
+                                 headers={"x-api-key": env("OPENSEA_API_KEY", ""), "accept": "application/json"})
+        return self._opensea
+
+    @property
     def xrpldata(self) -> Http:
         if self._xrpldata is None:
             self._xrpldata = Http(env("XRPLDATA_API_URL", "https://api.xrpldata.com/api/v1"), rate_per_sec=2)
@@ -93,8 +108,10 @@ class FloorService:
     async def floors_for(self, nfts: list[Asset]) -> dict[str, Floor]:
         """Floor per collection key for the given NFTs, best effort."""
         groups: dict[str, Asset] = {}
+        opensea_on = bool(env("OPENSEA_API_KEY", "")) or self._opensea is not None
         for a in nfts:
-            if a.is_nft and not a.spam and a.chain in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP):
+            if a.is_nft and not a.spam and (a.chain in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP)
+                                             or (a.chain in OPENSEA_CHAINS and opensea_on)):
                 groups.setdefault(collection_key(a), a)
 
         out: dict[str, Floor] = {}
@@ -106,7 +123,8 @@ class FloorService:
                     floor = await {Chain.SOLANA: lambda: self._solana(key, sample),
                                    Chain.ETHEREUM: lambda: self._ethereum(sample),
                                    Chain.CARDANO: lambda: self._cardano(sample),
-                                   Chain.XRP: lambda: self._xrp(sample)}[sample.chain]()
+                                   Chain.XRP: lambda: self._xrp(sample)}.get(
+                                       sample.chain, lambda: self._opensea_floor(key, sample))()
                 except Exception as e:   # one collection failing never matters to the rest
                     log.warning("floor unavailable for %s: %s", key, str(e)[:200])
                     floor = None
@@ -150,6 +168,26 @@ class FloorService:
             if isinstance(fp, (int, float)) and fp > 0 and (m.get("priceCurrency") or "ETH").upper() == "ETH":
                 return Floor(Decimal(str(fp)), "ETH", label, m.get("collectionUrl"))
         return None
+
+    async def _opensea_floor(self, key: str, sample: Asset) -> Floor | None:
+        chain = OPENSEA_CHAINS.get(sample.chain)
+        if not chain or not sample.contract or sample.token_id is None:
+            return None
+        if key not in self._symbols:   # collection slug, looked up once per collection
+            try:
+                res = await self.opensea.get(f"/chain/{chain}/contract/{sample.contract}/nfts/{sample.token_id}")
+                self._symbols[key] = ((res.get("nft") or {}).get("collection")) or None
+            except ProviderError:
+                self._symbols[key] = None   # not on OpenSea
+        slug = self._symbols[key]
+        if not slug:
+            return None
+        stats = await self.opensea.get(f"/collections/{slug}/stats")
+        total = stats.get("total") or {}
+        fp, sym = total.get("floor_price"), (total.get("floor_price_symbol") or "ETH").upper()
+        if not isinstance(fp, (int, float)) or fp <= 0 or sym not in ("ETH", "WETH"):
+            return None
+        return Floor(Decimal(str(fp)), "ETH", "OpenSea", f"https://opensea.io/collection/{slug}")
 
     async def _cardano(self, sample: Asset) -> Floor | None:
         policy = sample.collection or (sample.contract or "")[:56]

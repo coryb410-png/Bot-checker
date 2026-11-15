@@ -160,7 +160,7 @@ class RobinhoodScanner:
                 name = ((inst.get("metadata") or {}).get("name")) or f"{tok.get('name') or tok.get('symbol') or 'NFT'} #{total['token_id']}"
                 asset = Asset(Chain.ROBINHOOD, tok.get("symbol") or "NFT", contract=contract, decimals=0, is_nft=True,
                               token_id=str(total["token_id"]), name=name, collection=contract,
-                              image=safe_image(inst.get("image_url") or (inst.get("metadata") or {}).get("image")),
+                              image=safe_image((inst.get("metadata") or {}).get("image")) or safe_image(inst.get("image_url")),
                               spam=spam)
                 qty = Decimal(int(total.get("value") or 1)) if kind != "ERC-721" else Decimal(1)
             else:
@@ -203,8 +203,10 @@ def held_asset(item: dict) -> Asset | None:
     if tid not in name and len(tid) <= 12:
         name = f"{name} #{tid}"
     thumbs = item.get("thumbnails") or {}
-    image = (thumbs.get("500x500") or thumbs.get("250x250") or item.get("image_url")
-             or meta.get("image") or meta.get("image_url"))
+    # The token's own link first (ipfs:// becomes the ipfs.io gateway); Blockscout's
+    # image_url points at dweb.link, the slowest public gateway
+    image = (thumbs.get("500x500") or thumbs.get("250x250") or safe_image(meta.get("image"))
+             or item.get("image_url") or meta.get("image_url"))
     return Asset(Chain.ROBINHOOD, tok.get("symbol") or "NFT", contract=contract, decimals=0, is_nft=True,
                  token_id=tid, collection=contract, name=name, image=safe_image(image),
                  spam=tok.get("reputation") == "scam" or bool(tok.get("is_scam")))
