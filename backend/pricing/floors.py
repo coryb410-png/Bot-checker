@@ -4,8 +4,9 @@
              symbol (/v2/tokens/{mint}); the symbol has floor stats
              (/v2/collections/{symbol}/stats, floor in lamports). One lookup
              per collection, not per NFT, and results are cached.
-  Ethereum → Alchemy NFT API getFloorPrice (OpenSea, then LooksRare), using
-             the existing ALCHEMY_API_KEY.
+  Ethereum → OpenSea API v2 when OPENSEA_API_KEY is set, otherwise (or if
+             OpenSea has no floor) Alchemy's getFloorPrice (OpenSea, then
+             LooksRare) with the existing ALCHEMY_API_KEY.
   Cardano  → OpenCNFT (no key; their terms ask for a credit link, which the
              gallery shows next to each floor). jpg.store closed its API in 2026.
   Robinhood Chain, Base, Arbitrum, Optimism, Polygon → OpenSea API v2
@@ -32,8 +33,10 @@ from scanners.base import Http, ProviderError, env
 log = logging.getLogger("chainscope.floors")
 
 # OpenSea's names for the networks it prices for us
-OPENSEA_CHAINS = {Chain.ROBINHOOD: "robinhood", Chain.BASE: "base", Chain.ARBITRUM: "arbitrum",
+OPENSEA_CHAINS = {Chain.ETHEREUM: "ethereum", Chain.ROBINHOOD: "robinhood", Chain.BASE: "base", Chain.ARBITRUM: "arbitrum",
                   Chain.OPTIMISM: "optimism", Chain.POLYGON: "polygon"}
+# Floor currencies we can turn into dollars (wrapped coins price like the coin)
+FLOOR_CURRENCY = {"ETH": "ETH", "WETH": "ETH", "POL": "POL", "MATIC": "POL", "WPOL": "POL", "WMATIC": "POL"}
 LAMPORTS = Decimal(1_000_000_000)   # per SOL
 LOVELACE = Decimal(1_000_000)       # per ADA
 CACHE_SECONDS = 15 * 60
@@ -121,7 +124,7 @@ class FloorService:
             if not fresh:
                 try:
                     floor = await {Chain.SOLANA: lambda: self._solana(key, sample),
-                                   Chain.ETHEREUM: lambda: self._ethereum(sample),
+                                   Chain.ETHEREUM: lambda: self._ethereum_any(key, sample, opensea_on),
                                    Chain.CARDANO: lambda: self._cardano(sample),
                                    Chain.XRP: lambda: self._xrp(sample)}.get(
                                        sample.chain, lambda: self._opensea_floor(key, sample))()
@@ -185,9 +188,20 @@ class FloorService:
         stats = await self.opensea.get(f"/collections/{slug}/stats")
         total = stats.get("total") or {}
         fp, sym = total.get("floor_price"), (total.get("floor_price_symbol") or "ETH").upper()
-        if not isinstance(fp, (int, float)) or fp <= 0 or sym not in ("ETH", "WETH"):
+        currency = FLOOR_CURRENCY.get(sym)
+        if not isinstance(fp, (int, float)) or fp <= 0 or not currency:
             return None
-        return Floor(Decimal(str(fp)), "ETH", "OpenSea", f"https://opensea.io/collection/{slug}")
+        return Floor(Decimal(str(fp)), currency, "OpenSea", f"https://opensea.io/collection/{slug}")
+
+    async def _ethereum_any(self, key: str, sample: Asset, opensea_on: bool) -> Floor | None:
+        if opensea_on:
+            try:
+                floor = await self._opensea_floor(key, sample)
+                if floor:
+                    return floor
+            except ProviderError as e:
+                log.warning("OpenSea floor unavailable for %s, trying Alchemy: %s", key, str(e)[:200])
+        return await self._ethereum(sample)
 
     async def _cardano(self, sample: Asset) -> Floor | None:
         policy = sample.collection or (sample.contract or "")[:56]

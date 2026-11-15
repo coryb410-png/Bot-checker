@@ -562,7 +562,7 @@ def test_opensea_floors_for_robinhood_and_l2s(monkeypatch):
             if path.startswith("/chain/polygon/"):
                 return {"nft": {"collection": "polypals"}}
             if path == "/collections/polypals/stats":
-                return {"total": {"floor_price": 12, "floor_price_symbol": "POL"}}   # not ETH: not valued
+                return {"total": {"floor_price": 12, "floor_price_symbol": "WPOL"}}
             raise AssertionError(path)
 
     nft = lambda chain, c, t: Asset(chain, "X", contract=c, decimals=0, is_nft=True, token_id=t, collection=c)
@@ -572,7 +572,7 @@ def test_opensea_floors_for_robinhood_and_l2s(monkeypatch):
     f = out[collection_key(bears[0])]
     assert f.currency == "ETH" and str(f.amount) == "0.0042" and f.source == "OpenSea"
     assert f.url == "https://opensea.io/collection/robinhood-bears"
-    assert collection_key(pal) not in out
+    assert out[collection_key(pal)].currency == "POL" and out[collection_key(pal)].amount == 12
     assert sum(1 for c in calls if c.startswith("/chain/robinhood")) == 1   # one lookup per collection
 
 
@@ -583,3 +583,28 @@ def test_opensea_floors_skipped_without_key(monkeypatch):
     monkeypatch.delenv("OPENSEA_API_KEY", raising=False)
     a = Asset(Chain.ROBINHOOD, "X", contract="0xbear", decimals=0, is_nft=True, token_id="1", collection="0xbear")
     assert asyncio.run(FloorService().floors_for([a])) == {}
+
+
+
+def test_ethereum_floor_prefers_opensea_then_falls_back_to_alchemy(monkeypatch):
+    import asyncio
+    from core.models import Asset, Chain
+    from pricing.floors import FloorService, collection_key
+    monkeypatch.setenv("OPENSEA_API_KEY", "k")
+
+    class OS:
+        async def get(self, path, params=None):
+            if path == "/chain/ethereum/contract/0xa/nfts/1":
+                return {"nft": {"collection": "alpha"}}
+            if path == "/collections/alpha/stats":
+                return {"total": {"floor_price": 1.5, "floor_price_symbol": "ETH"}}
+            return {"nft": {}}   # 0xb: not on OpenSea
+
+    class Alchemy:
+        async def get(self, path, params=None):
+            return {"openSea": {"floorPrice": 0.3, "priceCurrency": "ETH"}} if params["contractAddress"] == "0xb" else {}
+
+    nft = lambda c: Asset(Chain.ETHEREUM, "X", contract=c, decimals=0, is_nft=True, token_id="1", collection=c)
+    out = asyncio.run(FloorService(opensea=OS(), alchemy_nft=Alchemy()).floors_for([nft("0xa"), nft("0xb")]))
+    assert out[collection_key(nft("0xa"))].amount == 1.5 and out[collection_key(nft("0xa"))].url.endswith("/alpha")
+    assert str(out[collection_key(nft("0xb"))].amount) == "0.3"

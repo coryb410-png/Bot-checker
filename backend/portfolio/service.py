@@ -244,7 +244,8 @@ NATIVE_ETH = Asset(Chain.ETHEREUM, "ETH", coingecko_id="ethereum")
 EVM_EXTRAS = (Chain.BASE, Chain.ARBITRUM, Chain.OPTIMISM, Chain.POLYGON)   # scanned for every 0x address
 NATIVE_ADA = Asset(Chain.CARDANO, "ADA", decimals=6, coingecko_id="cardano")
 NATIVE_XRP = Asset(Chain.XRP, "XRP", decimals=6, coingecko_id="ripple")
-NATIVES = (NATIVE_SOL, NATIVE_ETH, NATIVE_ADA, NATIVE_XRP)
+NATIVE_POL = Asset(Chain.POLYGON, "POL", decimals=18, coingecko_id="polygon-ecosystem-token")   # for floors priced in POL
+NATIVES = (NATIVE_SOL, NATIVE_ETH, NATIVE_ADA, NATIVE_XRP, NATIVE_POL)
 _floor_service = None
 
 
