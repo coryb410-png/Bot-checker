@@ -185,3 +185,16 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 /* Chain swinging: gold chains and the swinger, drawn over the walkers */
 .swing-layer { position: absolute; inset: 0; display: block; }
 @media print { .mascot-crew { display: none; } }
+
+/* NFT gallery: one tab per network (scrolls sideways on phones) */
+.nft-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; margin-top: -4px; scrollbar-width: thin; }
+.nft-tab { flex: none; display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--muted); font: 600 13px/1.1 inherit; cursor: pointer; white-space: nowrap; }
+.nft-tab:hover { color: var(--ink); border-color: var(--muted); }
+.nft-tab.on { background: var(--sunk); color: var(--ink); border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.nft-tab .ct { font: 500 12px var(--mono); color: var(--muted); }
+.nft-tab .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.nft-tab .dot.bitcoin { color: var(--btc); } .nft-tab .dot.ethereum { color: var(--eth); } .nft-tab .dot.solana { color: var(--sol); }
+.nft-tab .dot.robinhood { color: var(--hood); } .nft-tab .dot.cardano { color: var(--ada); } .nft-tab .dot.xrp { color: var(--xrp); }
+.nft-tab .dot.dogecoin { color: var(--doge); } .nft-tab .dot.base { color: var(--base); } .nft-tab .dot.arbitrum { color: var(--arb); }
+.nft-tab .dot.optimism { color: var(--op); } .nft-tab .dot.polygon { color: var(--poly); }

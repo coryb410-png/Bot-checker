@@ -34,10 +34,23 @@ function groupNfts(nfts: Holding[]): Group[] {
 }
 
 export default function NftGallery({ holdings }: { holdings: Holding[] }) {
-  const nfts = useMemo(() => holdings.filter((h) => h.nft && Number(h.quantity) > 0), [holdings]);
+  const allNfts = useMemo(() => holdings.filter((h) => h.nft && Number(h.quantity) > 0), [holdings]);
+  // One tab per network, most valuable first
+  const tabs = useMemo(() => {
+    const by = new Map<string, { chain: string; count: number; value: number }>();
+    for (const h of allNfts) {
+      const t = by.get(h.chain) ?? { chain: h.chain, count: 0, value: 0 };
+      t.count += 1; t.value += Number(h.value) || 0;
+      by.set(h.chain, t);
+    }
+    return [...by.values()].sort((a, b) => b.value - a.value || b.count - a.count);
+  }, [allNfts]);
+  const [tab, setTab] = useState<string>("all");
+  const active = tab === "all" || tabs.some((t) => t.chain === tab) ? tab : "all";
+  const nfts = useMemo(() => (active === "all" ? allNfts : allNfts.filter((h) => h.chain === active)), [allNfts, active]);
   const groups = useMemo(() => groupNfts(nfts), [nfts]);
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  if (!nfts.length) return null;
+  if (!allNfts.length) return null;
   const total = groups.reduce((s, g) => s + g.value, 0);
   const valued = nfts.filter((n) => n.value).length;
 
@@ -50,6 +63,17 @@ export default function NftGallery({ holdings }: { holdings: Holding[] }) {
           {total > 0 && <> · <strong className="num" style={{ color: "var(--ink)" }}>{money(String(total))}</strong> at floor</>}
         </span>
       </div>
+      {tabs.length > 1 && (
+        <div role="tablist" aria-label="NFTs by network" className="nft-tabs">
+          {[{ chain: "all", count: allNfts.length, value: tabs.reduce((s, t) => s + t.value, 0) }, ...tabs].map((t) => (
+            <button key={t.chain} type="button" role="tab" aria-selected={active === t.chain}
+              className={`nft-tab${active === t.chain ? " on" : ""}`} onClick={() => setTab(t.chain)}>
+              {t.chain === "all" ? "All networks" : <><span className={`dot ${t.chain}`} />{CHAIN_LABEL[t.chain as Chain] ?? t.chain}</>}
+              <span className="ct">{t.count}{t.value > 0 ? ` · ${money(String(t.value))}` : ""}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {valued < nfts.length && (
         <span style={{ color: "var(--muted)", fontSize: 12, marginTop: -6 }}>
           {nfts.length - valued} without a floor price (no marketplace listing found), so they show “—”.

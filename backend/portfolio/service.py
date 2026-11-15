@@ -212,13 +212,21 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
 
     async def owned_by(chain: Chain, addr: str) -> list[Asset]:
         sc = _scanner(chain)
-        if not hasattr(sc, "held_nfts"):
-            return []
-        try:
-            return await sc.held_nfts(addr)
-        except Exception as e:
-            p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
-            return []
+        owned: list[Asset] = []
+        if hasattr(sc, "held_nfts"):
+            try:
+                owned = await sc.held_nfts(addr)
+            except Exception as e:
+                p.network_errors[progress_key(chain, addr) + ":holdings"] = str(e)[:300]
+        from scanners import opensea
+        if chain in opensea.CHAINS and opensea.enabled():
+            try:
+                owned = await _with_opensea_pictures(chain, addr, owned)
+                if chain == Chain.ROBINHOOD:   # OpenSea listed what the wallet holds even if the explorer failed
+                    p.network_errors.pop(progress_key(chain, addr) + ":holdings", None)
+            except Exception as e:   # pictures are a bonus: never fail the scan over them
+                monitor.record("provider_error", f"opensea {chain.value}: {e}", network=chain.value)
+        return owned
 
     from core import monitor
     wallets = [(c, a) for c, a in p.addresses if c.value not in monitor.disabled_networks and c in (Chain.SOLANA, Chain.ETHEREUM, Chain.ROBINHOOD, Chain.CARDANO, Chain.XRP, Chain.DOGECOIN) + EVM_EXTRAS]
@@ -230,13 +238,38 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
     for t in p.txs:
         for l in t.legs:
             o = owned_by_key.get(l.asset.key) if l.asset.is_nft else None
-            if o and o.image and not l.asset.image:
+            if o and o.image and o.image != l.asset.image and (not l.asset.image or opensea_cdn(o.image)):
                 # A token with no photo had no metadata either, so its name was a guess
                 l.asset = replace(l.asset, image=o.image, name=o.name or l.asset.name)
             elif o and o.name and not l.asset.name:
                 l.asset = replace(l.asset, name=o.name)
     # Owned NFTs whose history we did read are already counted; keep only the rest
     p.untracked_nfts = list({a.key: a for a in extra}.values())
+
+
+def opensea_cdn(url: str | None) -> bool:
+    from scanners.opensea import is_cdn
+    return is_cdn(url)
+
+
+async def _with_opensea_pictures(chain: Chain, addr: str, owned: list[Asset]) -> list[Asset]:
+    """Give owned NFTs OpenSea's fast-loading pictures: always on Robinhood Chain
+    (its NFTs' own links are slow IPFS gateways), elsewhere only where a picture
+    is missing. On Robinhood, also add NFTs OpenSea lists that the explorer didn't."""
+    from scanners.opensea import OpenSea, as_asset, picture
+    listed = await OpenSea().account_nfts(chain, addr)
+    out, seen = [], set()
+    for a in owned:
+        k = ((a.contract or "").lower(), a.token_id or "")
+        seen.add(k)
+        n = listed.get(k)
+        pic = picture(n) if n else None
+        if pic and (chain == Chain.ROBINHOOD or not a.image):
+            a = replace(a, image=pic, name=a.name or n.get("name"))
+        out.append(a)
+    if chain == Chain.ROBINHOOD:
+        out += [as_asset(chain, c, t, n) for (c, t), n in listed.items() if (c, t) not in seen]
+    return out
 
 
 NATIVE_SOL = Asset(Chain.SOLANA, "SOL", decimals=9, coingecko_id="solana")

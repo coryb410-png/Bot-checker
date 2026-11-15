@@ -608,3 +608,55 @@ def test_ethereum_floor_prefers_opensea_then_falls_back_to_alchemy(monkeypatch):
     out = asyncio.run(FloorService(opensea=OS(), alchemy_nft=Alchemy()).floors_for([nft("0xa"), nft("0xb")]))
     assert out[collection_key(nft("0xa"))].amount == 1.5 and out[collection_key(nft("0xa"))].url.endswith("/alpha")
     assert str(out[collection_key(nft("0xb"))].amount) == "0.3"
+
+
+def test_opensea_pictures_for_robinhood_and_gaps(monkeypatch):
+    import asyncio
+    from core.models import Asset, Chain
+    from portfolio import service
+    from portfolio.pnl import Method
+    import scanners.opensea as osmod
+
+    monkeypatch.setenv("OPENSEA_API_KEY", "k")
+    pages = {
+        "robinhood": [{"nfts": [
+            {"identifier": "1", "contract": "0xBEAR", "collection": "robinhood-bears", "name": "Robinhood Bear #1",
+             "display_image_url": "https://i.seadn.io/s/bear1.png"},
+            {"identifier": "5", "contract": "0xcat", "collection": "cash-cats", "name": None,
+             "image_url": "https://i.seadn.io/s/cat5.png"}], "next": "p2"},
+            {"nfts": [], "next": None}],
+        "base": [{"nfts": [{"identifier": "9", "contract": "0xb", "image_url": "https://i.seadn.io/s/b9.png"},
+                           {"identifier": "8", "contract": "0xb", "image_url": "https://i.seadn.io/s/b8.png"}]}],
+    }
+    calls = []
+
+    class FakeHttp:
+        async def get(self, path, params=None):
+            calls.append((path, dict(params or {})))
+            chain = path.split("/")[2]
+            seq = pages.get(chain, [{"nfts": []}])
+            return seq[1] if (params or {}).get("next") and len(seq) > 1 else seq[0]
+
+    RealOpenSea = osmod.OpenSea
+    monkeypatch.setattr(osmod, "OpenSea", lambda: RealOpenSea(FakeHttp()))
+
+    class Holder:
+        def __init__(self, chain): self.chain = chain
+        async def held_nfts(self, owner):
+            nft = lambda c, t, img: Asset(self.chain, "X", contract=c, decimals=0, is_nft=True, token_id=t,
+                                          collection=c, name=f"n{t}", image=img)
+            if self.chain == Chain.ROBINHOOD:
+                return [nft("0xbear", "1", "https://ipfs.io/ipfs/bafybear")]
+            if self.chain == Chain.BASE:
+                return [nft("0xb", "9", None), nft("0xb", "8", "https://alchemy.cdn/b8.png")]
+            return []
+
+    monkeypatch.setattr(service, "_scanner", lambda c: Holder(c))
+    p = service.Store().create(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], Method.FIFO)
+    asyncio.run(service._find_untracked_nfts(p))
+    got = {(a.chain.value, a.contract, a.token_id): a for a in p.untracked_nfts}
+    assert got[("robinhood", "0xbear", "1")].image == "https://i.seadn.io/s/bear1.png"      # IPFS link replaced
+    assert got[("robinhood", "0xcat", "5")].name == "cash-cats #5"                           # added from OpenSea
+    assert got[("base", "0xb", "9")].image == "https://i.seadn.io/s/b9.png"                  # gap filled
+    assert got[("base", "0xb", "8")].image == "https://alchemy.cdn/b8.png"                   # existing kept
+    assert any(c[1].get("next") == "p2" for c in calls)
