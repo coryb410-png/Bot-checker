@@ -2,7 +2,10 @@
 
 Robinhood Chain is an Ethereum layer 2 (Arbitrum Orbit) whose gas token is
 ETH, so every 0x address a user adds is scanned here as well as on Ethereum.
-Blockscout's REST API needs no key.
+
+With BLOCKSCOUT_API_KEY set (free at dev.blockscout.com) requests go through
+Blockscout's keyed API (api.blockscout.com/4663/api/v2). Without it they go
+to the public explorer, which may block automated requests (403).
 
 Docs: https://docs.blockscout.com/devs/apis/rest
 Explorer: https://robinhoodchain.blockscout.com (override with ROBINHOOD_BLOCKSCOUT_URL)
@@ -16,12 +19,13 @@ from typing import AsyncIterator
 
 from core.models import Asset, Chain, Leg, NormalizedTx, safe_image
 
-from .base import Http, env
+from .base import Http, ProviderError, env
 from .ethereum import _merge_legs
 
 ETH = Asset(Chain.ROBINHOOD, "ETH", decimals=18, coingecko_id="ethereum")
 WEI = Decimal(10) ** 18
 MAX_PAGES = 400   # 50 items per page: up to 20,000 records per list
+CHAIN_ID = 4663
 
 
 def _ts(s: str | None) -> datetime:
@@ -36,14 +40,33 @@ def _hash(party) -> str:
 
 class RobinhoodScanner:
     def __init__(self, http: Http | None = None):
-        base = env("ROBINHOOD_BLOCKSCOUT_URL", "https://robinhoodchain.blockscout.com").rstrip("/")
-        self.http = http or Http(f"{base}/api/v2", rate_per_sec=4)
+        self.keyed = bool(env("BLOCKSCOUT_API_KEY", ""))
+        if http is not None:
+            self.http = http
+        elif self.keyed:
+            self.http = Http(f"https://api.blockscout.com/{CHAIN_ID}/api/v2", rate_per_sec=4,
+                             params={"apikey": env("BLOCKSCOUT_API_KEY")})
+        else:
+            base = env("ROBINHOOD_BLOCKSCOUT_URL", "https://robinhoodchain.blockscout.com").rstrip("/")
+            self.http = Http(f"{base}/api/v2", rate_per_sec=4)
+
+    async def get(self, path: str, params: dict | None = None) -> dict:
+        try:
+            return await self.http.get(path, params=params)
+        except ProviderError as e:
+            if not self.keyed and (" 403" in str(e) or " 401" in str(e)):
+                raise ProviderError("Robinhood Chain's explorer blocked the request. Add a free Blockscout API key "
+                                    "(BLOCKSCOUT_API_KEY, from dev.blockscout.com) in Render.") from e
+            raise
+
+    async def ping(self) -> dict:
+        return await self.get("/stats")
 
     async def _pages(self, path: str, since_hash: str | None, hash_field: str) -> list[dict]:
         """Walk a Blockscout list (newest first) until the last-seen tx hash."""
         out, params = [], {}
         for _ in range(MAX_PAGES):
-            res = await self.http.get(path, params=params or None)
+            res = await self.get(path, params=params or None)
             for item in res.get("items") or []:
                 if since_hash and (item.get(hash_field) or "").lower() == since_hash.lower():
                     return out
@@ -69,7 +92,7 @@ class RobinhoodScanner:
         activity) the same way Alchemy's lookup does on the other networks."""
         out, params = [], {"type": "ERC-721,ERC-404,ERC-1155"}
         for _ in range(100):   # 50 per page: up to 5,000 NFTs
-            res = await self.http.get(f"/addresses/{owner}/nft", params=params)
+            res = await self.get(f"/addresses/{owner}/nft", params=params)
             for it in res.get("items") or []:
                 a = held_asset(it)
                 if a:

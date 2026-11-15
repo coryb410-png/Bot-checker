@@ -517,3 +517,29 @@ def test_robinhood_holdings_are_checked_for_0x_wallets(monkeypatch):
     assert Chain.ROBINHOOD in asked and Chain.ETHEREUM in asked and Chain.BASE in asked
     assert [a.name for a in p.untracked_nfts] == ["Robinhood Bear #1"]
     assert p.nft_owner[p.untracked_nfts[0].key] == "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"
+
+
+def test_robinhood_uses_keyed_blockscout_api_and_explains_blocks(monkeypatch):
+    import asyncio
+    import pytest
+    from scanners.base import ProviderError
+    from scanners.robinhood import RobinhoodScanner
+
+    import scanners.robinhood as rh
+    made = []
+    monkeypatch.setattr(rh, "Http", lambda url, **kw: made.append((url, kw)) or types.SimpleNamespace())
+    monkeypatch.setenv("BLOCKSCOUT_API_KEY", "proapi_test")
+    assert RobinhoodScanner().keyed
+    assert made[-1][0] == "https://api.blockscout.com/4663/api/v2" and made[-1][1]["params"] == {"apikey": "proapi_test"}
+
+    monkeypatch.delenv("BLOCKSCOUT_API_KEY")
+
+    class Blocked:
+        async def get(self, path, params=None):
+            raise ProviderError("robinhoodchain.blockscout.com 403: <html>challenge</html>")
+
+    s = RobinhoodScanner()
+    assert not s.keyed and made[-1][0] == "https://robinhoodchain.blockscout.com/api/v2" and "params" not in made[-1][1]
+    s.http = Blocked()
+    with pytest.raises(ProviderError, match="BLOCKSCOUT_API_KEY"):
+        asyncio.run(s.held_nfts("0xabc"))

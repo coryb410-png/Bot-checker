@@ -22,8 +22,8 @@ class ProviderError(RuntimeError):
 
 
 class Http:
-    def __init__(self, base_url: str, rate_per_sec: float = 5.0, headers: dict | None = None):
-        self.client = httpx.AsyncClient(base_url=base_url, timeout=30, headers={
+    def __init__(self, base_url: str, rate_per_sec: float = 5.0, headers: dict | None = None, params: dict | None = None):
+        self.client = httpx.AsyncClient(base_url=base_url, timeout=30, params=params or None, headers={
             "User-Agent": "ChainScope/0.1", **(headers or {})})
         self._min_interval = 1.0 / rate_per_sec
         self._last = 0.0
