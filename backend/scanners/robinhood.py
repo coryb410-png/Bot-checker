@@ -63,6 +63,23 @@ class RobinhoodScanner:
         for tx in self.normalize(me, txs, internal, tokens):
             yield tx
 
+    async def held_nfts(self, owner: str) -> list[Asset]:
+        """Every NFT the wallet owns on Robinhood Chain right now, with photos.
+        Catches NFTs the transfer history missed (mints, airdrops, very old
+        activity) the same way Alchemy's lookup does on the other networks."""
+        out, params = [], {"type": "ERC-721,ERC-404,ERC-1155"}
+        for _ in range(100):   # 50 per page: up to 5,000 NFTs
+            res = await self.http.get(f"/addresses/{owner}/nft", params=params)
+            for it in res.get("items") or []:
+                a = held_asset(it)
+                if a:
+                    out.append(a)
+            nxt = res.get("next_page_params")
+            if not nxt:
+                break
+            params = {"type": params["type"], **nxt}
+        return out
+
     @staticmethod
     def normalize(me: str, txs: list[dict], internal: list[dict], tokens: list[dict]) -> list[NormalizedTx]:
         legs: dict[str, list[Leg]] = defaultdict(list)
@@ -146,3 +163,25 @@ class RobinhoodScanner:
             ))
         out.sort(key=lambda t: t.timestamp, reverse=True)
         return out
+
+
+def held_asset(item: dict) -> Asset | None:
+    """One entry of Blockscout's /addresses/{a}/nft list as an NFT asset."""
+    tok = item.get("token") or {}
+    contract = (tok.get("address_hash") or tok.get("address") or "").lower()
+    tid = str(item.get("id") if item.get("id") is not None else "")
+    if not contract or not tid:
+        return None
+    meta = item.get("metadata") or {}
+    collection = tok.get("name") or ""
+    if not collection or collection.lower().startswith("0x"):   # some contracts report no real name
+        collection = tok.get("symbol") or "NFT"
+    name = (meta.get("name") or "").strip().rstrip("#").strip() or collection
+    if tid not in name and len(tid) <= 12:
+        name = f"{name} #{tid}"
+    thumbs = item.get("thumbnails") or {}
+    image = (thumbs.get("500x500") or thumbs.get("250x250") or item.get("image_url")
+             or meta.get("image") or meta.get("image_url"))
+    return Asset(Chain.ROBINHOOD, tok.get("symbol") or "NFT", contract=contract, decimals=0, is_nft=True,
+                 token_id=tid, collection=contract, name=name, image=safe_image(image),
+                 spam=tok.get("reputation") == "scam" or bool(tok.get("is_scam")))

@@ -458,3 +458,62 @@ def test_0x_address_is_scanned_on_every_evm_network():
     p = Store().create(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], Method.FIFO)
     assert {c for c, _ in p.addresses} == {Chain.ETHEREUM, Chain.ROBINHOOD, Chain.BASE, Chain.ARBITRUM,
                                            Chain.OPTIMISM, Chain.POLYGON}
+
+
+def test_robinhood_held_nfts_pages_and_cleans_up():
+    import asyncio
+    from scanners.robinhood import RobinhoodScanner
+
+    tok = lambda addr, name, sym: {"address_hash": addr, "name": name, "symbol": sym, "type": "ERC-721", "reputation": "ok"}
+    page1 = {"items": [   # shape taken from the live Robinhood Chain Blockscout API
+        {"id": "2777", "token": tok("0x0084e3F586dfd424B959e80537208cEf4CbCEE21", "0x89cd0d2B1531e03c03ea9A33f40495a393aE7E94", "RHB"),
+         "image_url": "https://dweb.link/ipfs/bafkreidah", "metadata": {"name": "Robinhood Bear", "image": "ipfs://bafkreidah"},
+         "thumbnails": None, "token_type": "ERC-721", "value": "1"},
+        {"id": "538", "token": tok("0xREEF", "Reefers", "REEF"), "image_url": None,
+         "metadata": {"name": "Reefers #538", "image": "ipfs://bafyreef"}, "token_type": "ERC-721", "value": "1"},
+     ], "next_page_params": {"token_type": "ERC-721", "token_contract_address_hash": "0xreef", "token_id": "538"}}
+    page2 = {"items": [
+        {"id": "9", "token": {**tok("0xYOOD", "Yoodles Reborn", "YOOD"), "reputation": "scam"},
+         "image_url": "javascript:alert(1)", "metadata": {"name": "Yoodles Reborn #"}, "token_type": "ERC-721", "value": "1"},
+    ], "next_page_params": None}
+    calls = []
+
+    class FakeHttp:
+        async def get(self, path, params=None):
+            calls.append((path, dict(params or {})))
+            return page2 if "token_id" in (params or {}) else page1
+
+    nfts = asyncio.run(RobinhoodScanner(http=FakeHttp()).held_nfts("0xabc"))
+    assert [c[0] for c in calls] == ["/addresses/0xabc/nft"] * 2
+    assert calls[1][1]["type"] == "ERC-721,ERC-404,ERC-1155" and calls[1][1]["token_id"] == "538"
+    bear, reef, yood = nfts
+    assert bear.chain.value == "robinhood" and bear.is_nft and bear.token_id == "2777"
+    assert bear.contract == "0x0084e3f586dfd424b959e80537208cef4cbcee21" and bear.name == "Robinhood Bear #2777"
+    assert bear.image == "https://dweb.link/ipfs/bafkreidah"
+    assert reef.name == "Reefers #538" and reef.image == "https://ipfs.io/ipfs/bafyreef"
+    assert yood.name == "Yoodles Reborn #9" and yood.image is None and yood.spam
+
+
+def test_robinhood_holdings_are_checked_for_0x_wallets(monkeypatch):
+    import asyncio
+    from core.models import Asset, Chain
+    from portfolio import service
+    from portfolio.pnl import Method
+
+    asked = []
+
+    class Holder:
+        def __init__(self, chain): self.chain = chain
+        async def held_nfts(self, owner):
+            asked.append(self.chain)
+            if self.chain == Chain.ROBINHOOD:
+                return [Asset(Chain.ROBINHOOD, "RHB", contract="0xbear", decimals=0, is_nft=True, token_id="1",
+                              collection="0xbear", name="Robinhood Bear #1", image="https://x/1.png")]
+            return []
+
+    monkeypatch.setattr(service, "_scanner", lambda c: Holder(c))
+    p = service.Store().create(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"], Method.FIFO)
+    asyncio.run(service._find_untracked_nfts(p))
+    assert Chain.ROBINHOOD in asked and Chain.ETHEREUM in asked and Chain.BASE in asked
+    assert [a.name for a in p.untracked_nfts] == ["Robinhood Bear #1"]
+    assert p.nft_owner[p.untracked_nfts[0].key] == "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"
