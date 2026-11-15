@@ -222,8 +222,7 @@ async def wallet(pid: str, wallet: str | None = None):
                        "scanned": p.progress.get(progress_key(c, a), 0)} for c, a in whole.addresses],
         "wallet": wallet,
         "updated_at": p.updated_at,
-        "network_errors": [{"chain": k.split(":", 1)[0], "address": k.split(":", 1)[1], "error": v}
-                           for k, v in p.network_errors.items()],
+        "network_errors": [_network_error(k, v) for k, v in p.network_errors.items()],
         "summary": None if not r else {
             "portfolio_value": usd(r.portfolio_value + _untracked_value(p)),
             "nft_value": usd(_nft_value(p)),
@@ -443,3 +442,10 @@ def _tx_json(t, realized: dict):
             "polygon": f"https://polygonscan.com/tx/{t.tx_hash}",
         }[t.chain.value],
     }
+
+
+def _network_error(key: str, error: str) -> dict:
+    """'base:0xabc' (history) or 'base:0xabc:holdings' (NFTs owned now)."""
+    chain, _, rest = key.partition(":")
+    address, part = (rest[: -len(":holdings")], "nfts") if rest.endswith(":holdings") else (rest, "history")
+    return {"chain": chain, "address": address, "part": part, "error": error}

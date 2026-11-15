@@ -34,8 +34,13 @@ def uptime_seconds() -> int:
     return int(time.monotonic() - _started_mono)
 
 
+_LOUD = {"provider_error", "scan_failed", "health"}
+
+
 def record(kind: str, message: str, **data) -> None:
     counters[kind] += 1
+    if kind in _LOUD:   # also to the server log (already scrubbed of addresses), for Render's log view
+        print(f"[chainscope] {kind}: {scrub(message, 400)}", flush=True)
     events.append({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "kind": kind,
                    "message": scrub(message, 240), **{k: v for k, v in data.items() if v is not None}})
 
@@ -115,9 +120,9 @@ def health_ran(results: list[dict]) -> None:
         health_history.setdefault(r["name"], deque(maxlen=400)).append((now, bool(r["ok"]), r.get("ms")))
     health_last["at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     health_last["results"] = results
-    down = [r["name"] for r in results if not r["ok"]]
+    down = [r for r in results if not r["ok"]]
     if down:
-        record("health", "Health check: not working: " + ", ".join(down))
+        record("health", "Health check: not working: " + "; ".join(f"{r['name']} ({r.get('error') or 'failed'})" for r in down))
 
 
 def health_summary() -> list[dict]:

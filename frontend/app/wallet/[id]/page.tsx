@@ -212,7 +212,12 @@ export default function WalletPage({ params }: { params: { id: string } }) {
         <div className="panel">
           <Say mood="mad">
             <strong>Some networks couldn&apos;t be read this time:</strong>{" "}
-            {st.network_errors!.map((n) => `${CHAIN_LABEL[n.chain as Chain] ?? n.chain} (${shorten(n.address, 4)})`).join(", ")}.
+            {Object.values(st.network_errors!.reduce((acc, n) => {
+              const k = `${n.chain}|${n.address}`;
+              (acc[k] ??= { n, parts: new Set<string>() }).parts.add(n.part === "nfts" ? "NFTs" : "activity");
+              return acc;
+            }, {} as Record<string, { n: { chain: string; address: string }; parts: Set<string> }>)).map(({ n, parts }) =>
+              `${CHAIN_LABEL[n.chain as Chain] ?? n.chain} ${parts.size > 1 ? "" : parts.has("NFTs") ? "NFTs " : "activity "}(${shorten(n.address, 4)})`.replace("  ", " ")).join(", ")}.
             {" "}Everything else is shown. Tap Refresh to try those again.
           </Say>
         </div>
