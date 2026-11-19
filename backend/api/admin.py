@@ -30,7 +30,7 @@ KEYS = [
     ("MAESTRO_API_KEY", "Maestro (Dogecoin NFTs)"),
     ("BLOCKCYPHER_TOKEN", "BlockCypher (Dogecoin backup)"),
     ("MAGICEDEN_API_KEY", "Magic Eden (Solana floors)"),
-    ("OPENSEA_API_KEY", "OpenSea (NFT floors on Ethereum, Robinhood, Base, Arbitrum, Optimism, Polygon)"),
+    ("OPENSEA_API_KEY", "OpenSea (NFT floors, pictures and listings on Ethereum, Robinhood, Base, Arbitrum, Optimism, Polygon)"),
     ("BLOCKSCOUT_API_KEY", "Blockscout (Robinhood Chain; free at dev.blockscout.com)"),
     ("CACHE_URL", "Shared price cache (Render Key Value)"),
     ("PROXY_SHARED_SECRET", "Website proxy key (per-person limits)"),

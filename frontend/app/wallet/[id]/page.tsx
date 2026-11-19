@@ -6,9 +6,10 @@ import NftThumb from "@/components/NftThumb";
 import Highlights from "@/components/Highlights";
 import NftGallery from "@/components/NftGallery";
 import ValueChart from "@/components/ValueChart";
+import ListingsPanel from "@/components/ListingsPanel";
 import { BrandMark, Monkey, Say, moodFor } from "@/components/Brand";
 import { CHAIN_LABEL, Chain, shorten } from "@/lib/address";
-import { api, Holding, Method, money, Tx, WalletStatus } from "@/lib/api";
+import { api, Holding, Listings, Method, money, Tx, WalletStatus } from "@/lib/api";
 
 const TYPES: [string, string][] = [
   ["", "All activity"], ["buy,nft_purchase", "Buys (coins + NFTs)"], ["sell,nft_sale", "Sales (coins + NFTs)"],
@@ -49,10 +50,32 @@ export default function WalletPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState<string | null>(null);
   const sentinel = useRef<HTMLLIElement | null>(null);
   const [wallet, setWallet] = useState<string | null>(null);   // null = all wallets
+  const [view, setView] = useState<"portfolio" | "listed">("portfolio");
+  const [listed, setListed] = useState<Listings | null>(null);
+  const [listedLoading, setListedLoading] = useState(false);
+  const [listedError, setListedError] = useState<string | null>(null);
   const walletRef = useRef<string | null>(null);
   walletRef.current = wallet;
   const filterKey = `${type}|${chain}|${nftOnly}|${showSpam}|${wallet ?? ""}`;
   const activeKey = useRef(filterKey);
+
+  // NFTs listed for sale (checked once the scan is ready, again on demand)
+  const listedFor = useRef<string | null>(null);
+  const loadListed = useCallback(async (refresh = false) => {
+    const key = wallet ?? "";
+    listedFor.current = key;
+    setListedLoading(true); setListedError(null);
+    try {
+      const r = await api.listings(id, wallet, refresh);
+      if (listedFor.current === key) setListed(r);
+    } catch (e) {
+      if (listedFor.current === key) setListedError((e as Error).message || "Couldn't check marketplaces.");
+    } finally {
+      if (listedFor.current === key) setListedLoading(false);
+    }
+  }, [id, wallet]);
+  const ready = st?.status === "ready" && !st.demo;
+  useEffect(() => { if (ready) loadListed(); }, [ready, loadListed, st?.updated_at]);
 
   // First page plus holdings; the rest of the history streams in below.
   const loadData = useCallback(async () => {
@@ -223,7 +246,20 @@ export default function WalletPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {sm && (
+      {sm && st.status === "ready" && !st.demo && (
+        <nav className="vtabs" role="tablist" aria-label="Results">
+          <button type="button" role="tab" className="vtab" aria-selected={view === "portfolio"} onClick={() => setView("portfolio")}>Portfolio</button>
+          <button type="button" role="tab" className="vtab" aria-selected={view === "listed"} onClick={() => setView("listed")}>
+            Listed for sale{listed && <span className="ct">{listed.count}</span>}
+          </button>
+        </nav>
+      )}
+
+      {sm && view === "listed" && st.status === "ready" && (
+        <ListingsPanel data={listed} loading={listedLoading} error={listedError} onRefresh={() => loadListed(true)} />
+      )}
+
+      {sm && view === "portfolio" && (
         <>
           <section className="grid4">
             <div className="panel stat"><Monkey mood="cash" size="sm" /><span className="eyebrow">Portfolio value</span><div className="v">{money(sm.portfolio_value)}</div><div className="s">{Number(sm.nft_value) > 0 ? `Incl. ${money(sm.nft_value)} in NFTs at floor` : "At current prices"}</div></div>

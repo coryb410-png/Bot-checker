@@ -198,3 +198,23 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 .nft-tab .dot.robinhood { color: var(--hood); } .nft-tab .dot.cardano { color: var(--ada); } .nft-tab .dot.xrp { color: var(--xrp); }
 .nft-tab .dot.dogecoin { color: var(--doge); } .nft-tab .dot.base { color: var(--base); } .nft-tab .dot.arbitrum { color: var(--arb); }
 .nft-tab .dot.optimism { color: var(--op); } .nft-tab .dot.polygon { color: var(--poly); }
+
+/* Results: Portfolio / Listed for sale switch */
+.vtabs { display: flex; gap: 6px; overflow-x: auto; }
+.vtab { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 12px;
+  border: 1px solid var(--line); background: transparent; color: var(--muted); font: 700 14px/1.1 inherit; cursor: pointer; white-space: nowrap; }
+.vtab:hover { color: var(--ink); border-color: var(--muted); }
+.vtab[aria-selected="true"] { background: var(--sunk); color: var(--ink); border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.vtab .ct { font: 600 12px var(--mono); padding: 2px 7px; border-radius: 999px; background: var(--line); color: var(--ink); }
+
+/* Listed for sale */
+.listings { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+.listing { display: grid; grid-template-rows: auto 1fr; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  color: inherit; text-decoration: none; background: var(--sunk); transition: border-color .15s, transform .15s; }
+.listing:hover { border-color: var(--gold); transform: translateY(-2px); }
+.listing > :first-child { aspect-ratio: 1; width: 100%; }
+.li-body { display: grid; gap: 7px; padding: 10px 12px 12px; min-width: 0; }
+.li-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.li-price { font-size: 15px; }
+.li-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+@media (max-width: 520px) { .listings { grid-template-columns: repeat(2, minmax(0, 1fr)); } .li-body { padding: 8px 9px 10px; } .li-price { font-size: 13px; } }

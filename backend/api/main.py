@@ -313,6 +313,19 @@ def _holdings_json(p) -> list[dict]:
     return out
 
 
+@app.get("/api/wallets/{pid}/listings")
+async def listings(pid: str, req: Request, wallet: str | None = None, refresh: bool = False):
+    """NFTs the portfolio (or one wallet) has listed for sale: OpenSea for
+    Ethereum and its layer 2s plus Robinhood Chain, Magic Eden for Solana."""
+    from portfolio.listings import listings_for
+    whole = _portfolio(pid)
+    if whole.demo:
+        return {"listings": [], "count": 0, "total_usd": "0.00", "sources": [], "checked_at": None}
+    if refresh:
+        _limit(req, "resolve")   # a forced re-check costs marketplace API calls
+    return await listings_for(whole, _holdings_json(_scoped(pid, wallet)), wallet, refresh)
+
+
 @app.get("/api/wallets/{pid}/pnl")
 async def pnl(pid: str, method: Method | None = None):
     p = _portfolio(pid)

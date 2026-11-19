@@ -101,6 +101,17 @@ export interface Tx {
   source: string | null; success: boolean; legs: Leg[]; fee: string; fee_usd: string | null;
   usd_in: string; usd_out: string; has_realized: boolean; realized_pnl: string | null; explorer: string;
 }
+export interface Listing {
+  marketplace: string; chain: string; owner: string; key: string; name: string; image: string | null;
+  collection: string; collection_name?: string | null; price: string | null; currency: string; price_usd: string | null;
+  floor: { amount: string; currency: string; usd: string | null; source?: string; url?: string | null } | null;
+  paid_usd: string | null; vs_floor_pct: number | null; quantity: number; expires_at: string | null; url: string;
+}
+export interface Listings {
+  listings: Listing[]; count: number; total_usd: string; checked_at: string | null;
+  sources: { name: string; ok: boolean; error: string | null }[];
+}
+
 export interface Holding {
   asset: string; chain: string; key: string; quantity: string;
   nft: boolean; name: string | null; image: string | null; spam: boolean; compressed?: boolean;
@@ -134,6 +145,13 @@ export const api = {
     return call<{ total: number; items: Tx[] }>(`/api/wallets/${id}/transactions?${q}`);
   },
   holdings: (id: string, wallet?: string | null) => call<Holding[]>(`/api/wallets/${id}/holdings${inWallet(wallet)}`),
+  listings: (id: string, wallet?: string | null, refresh = false) => {
+    const q = new URLSearchParams();
+    if (wallet) q.set("wallet", wallet);
+    if (refresh) q.set("refresh", "true");
+    const qs = q.toString();
+    return call<Listings>(`/api/wallets/${id}/listings${qs ? `?${qs}` : ""}`);
+  },
   performance: (id: string, wallet?: string | null) => call<Performance>(`/api/wallets/${id}/performance${inWallet(wallet)}`),
   pnl: (id: string, method: Method) => call(`/api/wallets/${id}/pnl?method=${method}`),
   setCost: (id: string, tx_hash: string, total_cost_usd: number) =>

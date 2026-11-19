@@ -50,6 +50,7 @@ class Portfolio:
     value_history: list | None = None                 # cached chart points
     nft_owner: dict = field(default_factory=dict)     # untracked NFT key -> owning address
     views: dict = field(default_factory=dict)         # address -> (report it was built from, view)
+    listings_cache: dict = field(default_factory=dict)   # NFTs listed for sale, fetched on demand (minutes)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime | None = None
 
