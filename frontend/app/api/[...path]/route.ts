@@ -38,11 +38,15 @@ async function forward(req: NextRequest, { params }: { params: { path: string[] 
     if (!r.ok && !isJson) {
       // The host answered instead of our backend (asleep, restarting or down)
       console.error(`[proxy] ${req.method} ${url} -> ${r.status}: ${text.slice(0, 300)}`);
+      // A sleeping free server is answered for by Render's edge: 502/503, or a
+      // 429 "Just a moment…" bot check for requests from another server. All
+      // of these mean "wake it up": the browser pings it directly and retries.
+      const asleep = r.status === 502 || r.status === 503 || r.status === 504 || r.status === 429;
       return Response.json(
-        { detail: r.status === 502 || r.status === 503
+        { detail: asleep
             ? "The ChainScope server is waking up. Wait about 30 seconds and try again."
             : `The ChainScope server answered with an error (${r.status}). Try again in a moment.` },
-        { status: r.status, headers: WAKING_HEADERS },
+        { status: asleep ? 503 : r.status, headers: WAKING_HEADERS },
       );
     }
     const out: Record<string, string> = { "content-type": r.headers.get("content-type") ?? "application/json" };
