@@ -4,6 +4,11 @@
     its active listings on every network OpenSea supports (Ethereum, Base,
     Arbitrum, Optimism, Polygon, Robinhood Chain…).
   • Magic Eden (Solana): the wallet's tokens with listStatus=listed.
+  • Every other Solana marketplace Helius recognises (Tensor, Exchange Art,
+    Solanart…): the wallet's own listing / cancel / sale transactions, as
+    parsed by Helius. A mint whose latest event is a listing is listed.
+  • XRP Ledger: sell offers live on the ledger itself (account_objects of
+    type nft_offer), which covers every XRP marketplace at once.
 
 Fetched on demand when someone opens the "Listed" tab, kept in memory for a
 few minutes (like everything else here, never written anywhere).
@@ -21,10 +26,14 @@ from scanners.base import Http, env
 
 CACHE_SECONDS = 180
 STABLECOINS = {"USDC", "USDT", "USDG", "DAI", "USDC.E", "USDBC", "PYUSD"}
-COIN_FOR_CURRENCY = {"ETH": "ETH", "WETH": "ETH", "POL": "POL", "MATIC": "POL", "WPOL": "POL", "SOL": "SOL"}
+COIN_FOR_CURRENCY = {"ETH": "ETH", "WETH": "ETH", "POL": "POL", "MATIC": "POL", "WPOL": "POL", "SOL": "SOL", "XRP": "XRP"}
 OPENSEA_CHAIN = {"ethereum": Chain.ETHEREUM, "base": Chain.BASE, "arbitrum": Chain.ARBITRUM,
                  "optimism": Chain.OPTIMISM, "polygon": Chain.POLYGON, "matic": Chain.POLYGON,
                  "robinhood": Chain.ROBINHOOD}
+RIPPLE_EPOCH = 946684800   # XRPL times count seconds from 2000-01-01
+MARKET_NAMES = {"MAGIC_EDEN": "Magic Eden", "TENSOR": "Tensor", "EXCHANGE_ART": "Exchange Art", "SOLANART": "Solanart",
+                "HADESWAP": "Hadeswap", "CORAL_CUBE": "Coral Cube", "HYPERSPACE": "Hyperspace", "SNIPER": "Sniper",
+                "OPENSEA": "OpenSea", "SOLSEA": "SolSea", "FORM_FUNCTION": "Formfunction", "YAWWW": "Yawww"}
 EVM = {Chain.ETHEREUM, Chain.BASE, Chain.ARBITRUM, Chain.OPTIMISM, Chain.POLYGON, Chain.ROBINHOOD}
 
 
@@ -106,10 +115,101 @@ async def magiceden_listings(http: Http, owner: str) -> list[dict]:
     return out
 
 
+def market_name(source: str | None) -> str:
+    s = (source or "").upper()
+    return MARKET_NAMES.get(s) or (s.replace("_", " ").title() if s and s != "UNKNOWN" else "Other marketplace")
+
+
+async def helius_listings(http: Http, key: str, owner: str) -> list[dict]:
+    """Solana listings on any marketplace Helius parses, from the wallet's own
+    listing / cancel / sale history: the latest event per NFT decides."""
+    latest: dict[str, tuple[int, dict]] = {}
+    for kind in ("NFT_LISTING", "NFT_CANCEL_LISTING", "NFT_SALE"):
+        before = None
+        for _ in range(5):   # up to 500 events of each kind
+            params = {"api-key": key, "type": kind, "limit": 100}
+            if before:
+                params["before"] = before
+            try:
+                page = await http.get(f"/addresses/{owner}/transactions", params=params)
+            except Exception as e:
+                if "search period" in str(e) or " 404" in str(e):   # Helius: nothing more of this kind
+                    break
+                raise
+            if not page:
+                break
+            for tx in page:
+                ev = ((tx.get("events") or {}).get("nft")) or {}
+                ts = int(ev.get("timestamp") or tx.get("timestamp") or 0)
+                if kind != "NFT_SALE" and (ev.get("seller") or owner) != owner:
+                    continue
+                if kind == "NFT_SALE" and ev.get("seller") != owner:
+                    continue   # buying something doesn't end your own listing
+                for n in ev.get("nfts") or []:
+                    mint = n.get("mint")
+                    if mint and ts >= latest.get(mint, (-1, {}))[0]:
+                        latest[mint] = (ts, {"kind": kind, "ev": ev, "tx": tx})
+            before = page[-1].get("signature")
+            if len(page) < 100:
+                break
+    out = []
+    for mint, (_ts, e) in latest.items():
+        if e["kind"] != "NFT_LISTING":
+            continue
+        ev = e["ev"]
+        lamports = ev.get("amount")
+        out.append({
+            "marketplace": market_name(ev.get("source") or e["tx"].get("source")), "chain": Chain.SOLANA,
+            "owner": owner, "contract": mint, "token_id": mint,
+            "price": Decimal(int(lamports)) / Decimal(10 ** 9) if lamports else None, "currency": "SOL",
+            "quantity": 1, "expires_at": None, "url": f"https://solscan.io/token/{mint}",
+            "must_hold": True,   # a listing whose NFT has since left the wallet is stale
+        })
+    return out
+
+
+async def xrpl_listings(http: Http, owner: str) -> list[dict]:
+    """Sell offers the account has open on the XRP Ledger (any marketplace)."""
+    out, marker = [], None
+    for _ in range(10):
+        params = {"account": owner, "type": "nft_offer", "limit": 400, "ledger_index": "validated"}
+        if marker:
+            params["marker"] = marker
+        res = await http.post("/", json={"method": "account_objects", "params": [params]})
+        r = (res or {}).get("result") or {}
+        if r.get("status") == "error":
+            if r.get("error") == "actNotFound":
+                return out
+            raise RuntimeError(f"XRPL account_objects: {r.get('error_message') or r.get('error')}")
+        for o in r.get("account_objects") or []:
+            if not (int(o.get("Flags", 0)) & 1) or not o.get("NFTokenID"):
+                continue   # buy offers aren't listings
+            amt = o.get("Amount")
+            if isinstance(amt, str):
+                price, cur = Decimal(amt) / Decimal(10 ** 6), "XRP"
+            elif isinstance(amt, dict):
+                price, cur = Decimal(str(amt.get("value") or 0)), (amt.get("currency") or "?")[:12]
+            else:
+                continue
+            nid = o["NFTokenID"]
+            exp = o.get("Expiration")
+            out.append({
+                "marketplace": "XRP Ledger", "chain": Chain.XRP, "owner": owner, "contract": nid, "token_id": nid,
+                "price": price, "currency": cur, "quantity": 1,
+                "expires_at": _iso(int(exp) + RIPPLE_EPOCH) if exp else None,
+                "url": f"https://xrpscan.com/nft/{nid}",
+            })
+        marker = r.get("marker")
+        if not marker:
+            break
+    return out
+
+
 async def fetch_all(addresses: list[tuple[Chain, str]]) -> tuple[list[dict], list[dict]]:
     """All active listings for the portfolio's addresses, plus which sources were checked."""
     owners_evm = sorted({a.lower() for c, a in addresses if c in EVM})
     owners_sol = sorted({a for c, a in addresses if c == Chain.SOLANA})
+    owners_xrp = sorted({a for c, a in addresses if c == Chain.XRP})
     sources, jobs = [], []
 
     if owners_evm:
@@ -121,6 +221,13 @@ async def fetch_all(addresses: list[tuple[Chain, str]]) -> tuple[list[dict], lis
     if owners_sol:
         http = _me_http()
         jobs += [("Magic Eden", o, magiceden_listings(http, o)) for o in owners_sol]
+        hkey = env("HELIUS_API_KEY", "")
+        if hkey:
+            hh = Http(env("HELIUS_API_BASE", "https://api.helius.xyz/v0"), rate_per_sec=8)
+            jobs += [("Tensor & other Solana marketplaces", o, helius_listings(hh, hkey, o)) for o in owners_sol]
+    if owners_xrp:
+        xh = Http(env("XRPL_RPC_URL", "https://xrplcluster.com"), rate_per_sec=4)
+        jobs += [("XRP Ledger", o, xrpl_listings(xh, o)) for o in owners_xrp]
 
     results = await asyncio.gather(*(j[2] for j in jobs), return_exceptions=True)
     rows, status = [], {}
@@ -132,7 +239,13 @@ async def fetch_all(addresses: list[tuple[Chain, str]]) -> tuple[list[dict], lis
             rows += r
             status.setdefault(name, None)
     sources += [{"name": n, "ok": err is None, "error": err} for n, err in status.items()]
-    return rows, sources
+    seen, unique = set(), []
+    for r in rows:
+        k = (r["chain"], r["contract"], r["token_id"], r["marketplace"])
+        if k not in seen:
+            seen.add(k)
+            unique.append(r)
+    return unique, sources
 
 
 def _usd(amount: Decimal | None, currency: str, native_usd: dict) -> Decimal | None:
@@ -163,6 +276,8 @@ async def listings_for(p, holdings: list[dict], wallet: str | None, refresh: boo
         chain: Chain = r["chain"]
         key = f"{chain.value}:nft:{r['contract']}:{r['token_id']}"
         h = by_key.get(key.lower()) or {}
+        if r.get("must_hold") and by_key and not h:
+            continue   # the NFT has left the wallet since it was listed
         price_usd = _usd(r["price"], r["currency"], p.native_usd or {})
         floor = h.get("floor") or None
         floor_usd = Decimal(floor["usd"]) if floor and floor.get("usd") else None

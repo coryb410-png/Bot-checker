@@ -74,8 +74,9 @@ export default function WalletPage({ params }: { params: { id: string } }) {
       if (listedFor.current === key) setListedLoading(false);
     }
   }, [id, wallet]);
-  const ready = st?.status === "ready" && !st.demo;
-  useEffect(() => { if (ready) loadListed(); }, [ready, loadListed, st?.updated_at]);
+  const known = !!st && !st.demo;
+  const ready = st?.status === "ready";
+  useEffect(() => { if (known) loadListed(); }, [known, ready, loadListed]);
 
   // First page plus holdings; the rest of the history streams in below.
   const loadData = useCallback(async () => {
@@ -170,6 +171,15 @@ export default function WalletPage({ params }: { params: { id: string } }) {
     </header>
     <main className="wrap" style={{ display: "grid", gap: 20 }}>
 
+      {!st.demo && (
+        <nav className="vtabs" role="tablist" aria-label="Results">
+          <button type="button" role="tab" className="vtab" aria-selected={view === "portfolio"} onClick={() => setView("portfolio")}>Portfolio</button>
+          <button type="button" role="tab" className="vtab" aria-selected={view === "listed"} onClick={() => setView("listed")}>
+            Listings{listed ? <span className="ct">{listed.count}</span> : listedLoading ? <span className="ct">…</span> : null}
+          </button>
+        </nav>
+      )}
+
       {st.demo && (
         <div className="panel row" style={{ justifyContent: "space-between", background: "var(--sunk)" }}>
           <span className="row" style={{ gap: 12, flexWrap: "nowrap" }}><Monkey mood="smirk" /><span><strong>Example wallet.</strong> Every address, amount and NFT here is invented, so you can explore without a real wallet.</span></span>
@@ -246,17 +256,9 @@ export default function WalletPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {sm && st.status === "ready" && !st.demo && (
-        <nav className="vtabs" role="tablist" aria-label="Results">
-          <button type="button" role="tab" className="vtab" aria-selected={view === "portfolio"} onClick={() => setView("portfolio")}>Portfolio</button>
-          <button type="button" role="tab" className="vtab" aria-selected={view === "listed"} onClick={() => setView("listed")}>
-            Listed for sale{listed && <span className="ct">{listed.count}</span>}
-          </button>
-        </nav>
-      )}
-
-      {sm && view === "listed" && st.status === "ready" && (
-        <ListingsPanel data={listed} loading={listedLoading} error={listedError} onRefresh={() => loadListed(true)} />
+      {view === "listed" && !st.demo && (
+        <ListingsPanel data={listed} loading={listedLoading} error={listedError} onRefresh={() => loadListed(true)}
+          scanning={st.status !== "ready"} />
       )}
 
       {sm && view === "portfolio" && (

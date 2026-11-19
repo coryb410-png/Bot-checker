@@ -92,3 +92,72 @@ def test_fetch_all_reports_missing_opensea_key(monkeypatch):
     monkeypatch.delenv("OPENSEA_API_KEY", raising=False)
     rows, sources = asyncio.run(L.fetch_all([(Chain.ETHEREUM, "0xme")]))
     assert rows == [] and sources == [{"name": "OpenSea", "ok": False, "error": "OPENSEA_API_KEY isn't set"}]
+
+
+def test_helius_listings_latest_event_wins():
+    def ev(kind, mint, ts, source="TENSOR", amount=None, seller="Me", buyer=None):
+        return {"signature": f"{kind}{mint}{ts}", "timestamp": ts, "type": kind, "source": source,
+                "events": {"nft": {"type": kind, "source": source, "amount": amount, "seller": seller,
+                                   "buyer": buyer, "timestamp": ts, "nfts": [{"mint": mint}]}}}
+
+    def pages(path, params):
+        assert path == "/addresses/Me/transactions" and params["api-key"] == "k"
+        return {
+            "NFT_LISTING": [ev("NFT_LISTING", "A", 300, amount=2_500_000_000),          # still listed (Tensor)
+                            ev("NFT_LISTING", "B", 100, amount=1_000_000_000),          # later cancelled
+                            ev("NFT_LISTING", "C", 100, "EXCHANGE_ART", 5_000_000_000), # later sold
+                            ev("NFT_LISTING", "D", 50, "SOME_NEW_MARKET", 700_000_000)],
+            "NFT_CANCEL_LISTING": [ev("NFT_CANCEL_LISTING", "B", 200)],
+            "NFT_SALE": [ev("NFT_SALE", "C", 250, "EXCHANGE_ART", 5_000_000_000),
+                         ev("NFT_SALE", "D", 60, "MAGIC_EDEN", 1, seller="Someone", buyer="Me")],   # buying ≠ selling
+        }[params["type"]]
+
+    rows = asyncio.run(L.helius_listings(FakeHttp(pages), "k", "Me"))
+    got = {r["contract"]: r for r in rows}
+    assert set(got) == {"A", "D"}
+    assert got["A"]["marketplace"] == "Tensor" and got["A"]["price"] == Decimal("2.5") and got["A"]["must_hold"]
+    assert got["D"]["marketplace"] == "Some New Market"
+
+
+def test_xrpl_sell_offers():
+    calls = []
+
+    class XHttp:
+        async def post(self, path, json=None):
+            calls.append(json)
+            p = json["params"][0]
+            assert json["method"] == "account_objects" and p["type"] == "nft_offer"
+            if "marker" not in p:
+                return {"result": {"account_objects": [
+                    {"LedgerEntryType": "NFTokenOffer", "Flags": 1, "NFTokenID": "000A", "Amount": "25000000", "Expiration": 820000000},
+                    {"LedgerEntryType": "NFTokenOffer", "Flags": 0, "NFTokenID": "000B", "Amount": "1000000"},   # a buy offer
+                ], "marker": "m2"}}
+            return {"result": {"account_objects": [
+                {"Flags": 1, "NFTokenID": "000C", "Amount": {"currency": "USD", "issuer": "rX", "value": "12.5"}}]}}
+
+    rows = asyncio.run(L.xrpl_listings(XHttp(), "rMe"))
+    assert [r["token_id"] for r in rows] == ["000A", "000C"] and len(calls) == 2
+    a, c = rows
+    assert a["price"] == Decimal("25") and a["currency"] == "XRP" and a["expires_at"].startswith("2025")
+    assert c["price"] == Decimal("12.5") and c["currency"] == "USD" and c["marketplace"] == "XRP Ledger"
+
+
+def test_stale_solana_listing_dropped_once_holdings_known(monkeypatch):
+    rows = [{"marketplace": "Tensor", "chain": Chain.SOLANA, "owner": "Me", "contract": "Gone", "token_id": "Gone",
+             "price": Decimal("1"), "currency": "SOL", "quantity": 1, "expires_at": None, "url": "u", "must_hold": True},
+            {"marketplace": "Tensor", "chain": Chain.SOLANA, "owner": "Me", "contract": "Kept", "token_id": "Kept",
+             "price": Decimal("1"), "currency": "SOL", "quantity": 1, "expires_at": None, "url": "u", "must_hold": True}]
+
+    async def fake_fetch(addresses):
+        return rows, []
+    monkeypatch.setattr(L, "fetch_all", fake_fetch)
+
+    class P:
+        addresses = [(Chain.SOLANA, "Me")]
+        native_usd = {"SOL": 100}
+        listings_cache = {}
+    held = [{"key": "solana:nft:Kept:Kept", "nft": True, "name": "Kept #1"}]
+    out = asyncio.run(L.listings_for(P(), held, None))
+    assert [x["name"] for x in out["listings"]] == ["Kept #1"]
+    P.listings_cache = {}
+    assert asyncio.run(L.listings_for(P(), [], None))["count"] == 2   # scan still running: show both

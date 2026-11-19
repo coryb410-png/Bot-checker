@@ -26,14 +26,14 @@ function expires(iso: string | null) {
   return `Ends ${new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
 }
 
-export default function ListingsPanel({ data, loading, error, onRefresh }:
-  { data: Listings | null; loading: boolean; error: string | null; onRefresh: () => void }) {
+export default function ListingsPanel({ data, loading, error, onRefresh, scanning = false }:
+  { data: Listings | null; loading: boolean; error: string | null; onRefresh: () => void; scanning?: boolean }) {
   const markets = data ? [...new Set(data.listings.map((l) => l.marketplace))] : [];
   return (
     <section className="panel" style={{ display: "grid", gap: 14 }}>
       <div className="row" style={{ justifyContent: "space-between", gap: 10 }}>
         <div style={{ display: "grid", gap: 2 }}>
-          <h2 style={{ margin: 0 }}>Listed for sale</h2>
+          <h2 style={{ margin: 0 }}>Listings</h2>
           <span style={{ color: "var(--muted)", fontSize: 13 }}>
             {data ? <>{data.count} listed{Number(data.total_usd) > 0 && <> · asking <strong className="num">{money(data.total_usd)}</strong> in total</>}
               {data.checked_at && <> · checked {new Date(data.checked_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</>}</> : "Checking marketplaces…"}
@@ -43,6 +43,7 @@ export default function ListingsPanel({ data, loading, error, onRefresh }:
       </div>
 
       {error && <p className="loss" style={{ margin: 0 }}>{error}</p>}
+      {scanning && <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>The scan is still running: names, pictures and floor prices fill in when it finishes.</p>}
 
       {data && data.sources.some((s) => !s.ok) && (
         <p style={{ margin: 0, fontSize: 13, color: "var(--muted)" }}>
@@ -85,8 +86,10 @@ export default function ListingsPanel({ data, loading, error, onRefresh }:
       )}
 
       <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>
-        Checked {markets.length ? markets.join(" and ") : "OpenSea and Magic Eden"}: OpenSea for Ethereum, Base, Arbitrum, Optimism,
-        Polygon and Robinhood Chain; Magic Eden for Solana. Prices are what each NFT is listed at; tap one to open its listing.
+        {markets.length > 0 && <>Found on {markets.join(", ")}. </>}
+        Checks OpenSea for Ethereum, Base, Arbitrum, Optimism, Polygon and Robinhood Chain; Magic Eden, Tensor and the other
+        Solana marketplaces Helius recognises for Solana; and the XRP Ledger itself, which covers every XRP marketplace.
+        Prices are what each NFT is listed at; tap one to open it.
       </p>
     </section>
   );
