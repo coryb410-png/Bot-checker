@@ -88,7 +88,8 @@ export default function ListingsPanel({ data, loading, error, onRefresh, scannin
       <p style={{ margin: 0, fontSize: 12, color: "var(--muted)" }}>
         {markets.length > 0 && <>Found on {markets.join(", ")}. </>}
         Checks OpenSea for Ethereum, Base, Arbitrum, Optimism, Polygon and Robinhood Chain; Magic Eden, Tensor and the other
-        Solana marketplaces Helius recognises for Solana; and the XRP Ledger itself, which covers every XRP marketplace.
+        Solana marketplaces Helius recognises for Solana; Exclusivo (exclusivo.one) for NFTs on Solana, Ethereum, Base, Polygon
+        and Robinhood Chain; and the XRP Ledger itself, which covers every XRP marketplace.
         Prices are what each NFT is listed at; tap one to open it.
       </p>
     </section>

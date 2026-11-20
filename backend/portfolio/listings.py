@@ -7,6 +7,10 @@
   • Every other Solana marketplace Helius recognises (Tensor, Exchange Art,
     Solanart…): the wallet's own listing / cancel / sale transactions, as
     parsed by Helius. A mint whose latest event is a listing is listed.
+  • Exclusivo (exclusivo.one): its public API has no per-wallet lookup, so
+    each NFT the scan found (Solana, Ethereum, Base, Polygon, Robinhood) is
+    looked up one by one (capped) for an active listing, which can be on
+    Exclusivo itself ("EXC") or a marketplace it aggregates.
   • XRP Ledger: sell offers live on the ledger itself (account_objects of
     type nft_offer), which covers every XRP marketplace at once.
 
@@ -30,6 +34,9 @@ COIN_FOR_CURRENCY = {"ETH": "ETH", "WETH": "ETH", "POL": "POL", "MATIC": "POL", 
 OPENSEA_CHAIN = {"ethereum": Chain.ETHEREUM, "base": Chain.BASE, "arbitrum": Chain.ARBITRUM,
                  "optimism": Chain.OPTIMISM, "polygon": Chain.POLYGON, "matic": Chain.POLYGON,
                  "robinhood": Chain.ROBINHOOD}
+EXC_CHAINS = {"solana", "ethereum", "polygon", "base", "robinhood"}
+EXC_MAX_NFTS = 200          # per check; most valuable NFTs first
+EXC_NAMES = {"EXC": "Exclusivo", "magic-eden": "Magic Eden", "opensea": "OpenSea", "tensor": "Tensor"}
 RIPPLE_EPOCH = 946684800   # XRPL times count seconds from 2000-01-01
 MARKET_NAMES = {"MAGIC_EDEN": "Magic Eden", "TENSOR": "Tensor", "EXCHANGE_ART": "Exchange Art", "SOLANART": "Solanart",
                 "HADESWAP": "Hadeswap", "CORAL_CUBE": "Coral Cube", "HYPERSPACE": "Hyperspace", "SNIPER": "Sniper",
@@ -205,6 +212,48 @@ async def xrpl_listings(http: Http, owner: str) -> list[dict]:
     return out
 
 
+async def exclusivo_listings(http: Http, nfts: list[dict]) -> tuple[list[dict], str | None]:
+    """Active listings for these held NFTs from Exclusivo's public API."""
+    sem = asyncio.Semaphore(5)
+    failures = 0
+
+    async def one(h: dict) -> dict | None:
+        nonlocal failures
+        chain = h["chain"]
+        address = (h.get("collection") or "").split(":", 1)[-1]
+        tid = h["key"].rsplit(":", 1)[-1]
+        if not address or not tid:
+            return None
+        async with sem:
+            try:
+                res = await http.get(f"/tokens/{chain}/{address}/{tid}")
+            except Exception as e:
+                if " 404" not in str(e):
+                    failures += 1
+                return None
+        d = res.get("data") if isinstance(res, dict) and "data" in res else res
+        l = (d or {}).get("listing") or None
+        if not l or (l.get("status") or "active") != "active":
+            return None
+        price = l.get("price") or {}
+        try:
+            amount = Decimal(str(price.get("decimal")))
+        except (InvalidOperation, TypeError):
+            return None
+        owner = (d.get("owner") or l.get("seller") or "")
+        slug = l.get("marketplace") or "EXC"
+        return {"marketplace": EXC_NAMES.get(slug) or slug.replace("-", " ").title(), "chain": Chain(chain),
+                "owner": owner.lower() if owner.startswith("0x") else owner,
+                "contract": tid if chain == "solana" else address.lower(), "token_id": tid,
+                "price": amount, "currency": (price.get("currency") or "").upper() or "?",
+                "usd_hint": price.get("usd"), "quantity": 1, "expires_at": l.get("expiresAt"),
+                "url": f"https://exclusivo.one/wallet/{owner}" if owner else "https://exclusivo.one"}
+
+    rows = [r for r in await asyncio.gather(*(one(h) for h in nfts)) if r]
+    error = f"{failures} of {len(nfts)} NFT lookups failed" if nfts and failures == len(nfts) else None
+    return rows, error
+
+
 async def fetch_all(addresses: list[tuple[Chain, str]]) -> tuple[list[dict], list[dict]]:
     """All active listings for the portfolio's addresses, plus which sources were checked."""
     owners_evm = sorted({a.lower() for c, a in addresses if c in EVM})
@@ -269,8 +318,26 @@ async def listings_for(p, holdings: list[dict], wallet: str | None, refresh: boo
         p.listings_cache = cache
 
     by_key = {h["key"].lower(): h for h in holdings if h.get("nft")}
+
+    # Exclusivo needs the NFTs themselves (no per-wallet lookup): check the
+    # held ones once the scan has found them, cached like the rest.
+    eligible = sorted((h for h in holdings if h.get("nft") and not h.get("spam") and h.get("chain") in EXC_CHAINS
+                       and h.get("collection")), key=lambda h: -(float(h.get("value") or 0)))[:EXC_MAX_NFTS]
+    exc_keys = sorted(h["key"] for h in eligible)
+    exc = cache.get("exc") or {}
+    if eligible and (refresh or exc.get("keys") != exc_keys or time.time() - exc.get("at", 0) > CACHE_SECONDS):
+        http = Http(env("EXCLUSIVO_API_URL", "https://exclusivo.one/v1"), rate_per_sec=4)
+        try:
+            rows_, err = await exclusivo_listings(http, eligible)
+        except Exception as e:
+            rows_, err = [], monitor.scrub(str(e), 160)
+        exc = cache["exc"] = {"keys": exc_keys, "at": time.time(), "rows": rows_, "error": err}
+    found = {(r["chain"], r["token_id"].lower(), r["marketplace"]) for r in cache["rows"]}
+    extra = [r for r in exc.get("rows") or [] if (r["chain"], r["token_id"].lower(), r["marketplace"]) not in found]
+    sources = list(cache["sources"]) + ([{"name": "Exclusivo", "ok": not exc.get("error"), "error": exc.get("error")}]
+                                        if exc else [])
     out = []
-    for r in cache["rows"]:
+    for r in cache["rows"] + extra:
         if wallet and r["owner"].lower() != wallet.lower():
             continue
         chain: Chain = r["chain"]
@@ -279,6 +346,8 @@ async def listings_for(p, holdings: list[dict], wallet: str | None, refresh: boo
         if r.get("must_hold") and by_key and not h:
             continue   # the NFT has left the wallet since it was listed
         price_usd = _usd(r["price"], r["currency"], p.native_usd or {})
+        if price_usd is None and r.get("usd_hint"):
+            price_usd = Decimal(str(r["usd_hint"]))
         floor = h.get("floor") or None
         floor_usd = Decimal(floor["usd"]) if floor and floor.get("usd") else None
         paid = Decimal(h["cost_basis"]) if h.get("cost_basis") else None
@@ -297,4 +366,4 @@ async def listings_for(p, holdings: list[dict], wallet: str | None, refresh: boo
     out.sort(key=lambda x: Decimal(x["price_usd"]) if x["price_usd"] else Decimal(-1), reverse=True)
     total = sum((Decimal(x["price_usd"]) for x in out if x["price_usd"]), Decimal(0))
     return {"listings": out, "count": len(out), "total_usd": f"{total:.2f}",
-            "sources": cache["sources"], "checked_at": cache["checked_at"]}
+            "sources": sources, "checked_at": cache["checked_at"]}

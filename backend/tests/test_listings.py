@@ -161,3 +161,56 @@ def test_stale_solana_listing_dropped_once_holdings_known(monkeypatch):
     assert [x["name"] for x in out["listings"]] == ["Kept #1"]
     P.listings_cache = {}
     assert asyncio.run(L.listings_for(P(), [], None))["count"] == 2   # scan still running: show both
+
+
+def test_exclusivo_listings_from_held_nfts(monkeypatch):
+    async def no_other(addresses):
+        return [{"marketplace": "Magic Eden", "chain": Chain.SOLANA, "owner": "Me", "contract": "MintME", "token_id": "MintME",
+                 "price": Decimal("3"), "currency": "SOL", "quantity": 1, "expires_at": None, "url": "me"}], \
+               [{"name": "Magic Eden", "ok": True, "error": None}]
+    monkeypatch.setattr(L, "fetch_all", no_other)
+    asked = []
+
+    class ExcHttp:
+        def __init__(self, *a, **k): pass
+
+        async def get(self, path, params=None):
+            asked.append(path)
+            if path == "/tokens/solana/CollA/MintEXC":
+                return {"data": {"chain": "solana", "owner": "Me", "listing": {
+                    "price": {"raw": "1250000000", "decimal": 1.25, "currency": "SOL", "usd": 284.5},
+                    "marketplace": "EXC", "seller": "Me", "status": "active"}}}
+            if path == "/tokens/solana/CollA/MintME":   # same listing we already have from Magic Eden
+                return {"data": {"owner": "Me", "listing": {"price": {"decimal": 3, "currency": "SOL"},
+                                                            "marketplace": "magic-eden", "status": "active"}}}
+            if path == "/tokens/robinhood/0xbear/7":
+                return {"data": {"owner": "0xME", "listing": {"price": {"decimal": 0.02, "currency": "ETH", "usd": 60},
+                                                              "marketplace": "EXC", "status": "active"}}}
+            if path == "/tokens/solana/CollA/MintSold":
+                return {"data": {"owner": "Me", "listing": {"price": {"decimal": 9, "currency": "SOL"}, "marketplace": "EXC", "status": "sold"}}}
+            raise Exception("exclusivo.one 404: not found")
+
+    monkeypatch.setattr(L, "Http", ExcHttp)
+
+    class P:
+        addresses = [(Chain.SOLANA, "Me"), (Chain.ROBINHOOD, "0xme")]
+        native_usd = {"SOL": 200, "ETH": 3000}
+        listings_cache = {}
+
+    nft = lambda key, coll, name, value=None: {"key": key, "nft": True, "chain": key.split(":")[0], "name": name,
+                                               "collection": coll, "value": value, "spam": False}
+    held = [nft("solana:nft:MintEXC:MintEXC", "solana:CollA", "Retardio #9", "500"),
+            nft("solana:nft:MintME:MintME", "solana:CollA", "Retardio #3"),
+            nft("solana:nft:MintSold:MintSold", "solana:CollA", "Retardio #5"),
+            nft("solana:nft:MintNone:MintNone", "solana:CollA", "Retardio #6"),
+            nft("robinhood:nft:0xbear:7", "robinhood:0xbear", "Robinhood Bear #7"),
+            nft("cardano:nft:x:y", "cardano:x", "Not on Exclusivo")]
+    out = asyncio.run(L.listings_for(P(), held, None))
+    by = {(x["name"], x["marketplace"]) for x in out["listings"]}
+    assert by == {("Retardio #3", "Magic Eden"), ("Retardio #9", "Exclusivo"), ("Robinhood Bear #7", "Exclusivo")}
+    exc = next(x for x in out["listings"] if x["name"] == "Retardio #9")
+    assert exc["price"] == "1.25" and exc["price_usd"] == "250.00" and exc["url"] == "https://exclusivo.one/wallet/Me"
+    assert not any("cardano" in a for a in asked) and len(asked) == 5
+    assert {"name": "Exclusivo", "ok": True, "error": None} in out["sources"]
+    # one wallet only
+    assert {x["name"] for x in asyncio.run(L.listings_for(P(), held, "0xME"))["listings"]} == {"Robinhood Bear #7"}
