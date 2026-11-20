@@ -240,6 +240,8 @@ def register(app, store, prices) -> dict:
 
     async def on_startup():
         await settings.load(prices)
+        from core import diag
+        asyncio.create_task(diag.run())   # only does anything when DIAG_SOL is set
         app.state.health_task = asyncio.create_task(_health_loop())
 
     if hasattr(app, "on_event"):
