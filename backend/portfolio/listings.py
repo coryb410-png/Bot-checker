@@ -11,6 +11,10 @@
     each NFT the scan found (Solana, Ethereum, Base, Polygon, Robinhood) is
     looked up one by one (capped) for an active listing, which can be on
     Exclusivo itself ("EXC") or a marketplace it aggregates.
+  • SolOnChain (solonchain.io): listing an NFT moves it into an escrow
+    account of its marketplace program; each listing is a 91-byte account
+    [8 discriminator | seller 32 | asset 32 | price u64 lamports | listed_at
+    i64 | 3 bytes], so getProgramAccounts filtered on the seller finds them.
   • XRP Ledger: sell offers live on the ledger itself (account_objects of
     type nft_offer), which covers every XRP marketplace at once.
 
@@ -37,6 +41,8 @@ OPENSEA_CHAIN = {"ethereum": Chain.ETHEREUM, "base": Chain.BASE, "arbitrum": Cha
 EXC_CHAINS = {"solana", "ethereum", "polygon", "base", "robinhood"}
 EXC_MAX_NFTS = 200          # per check; most valuable NFTs first
 EXC_NAMES = {"EXC": "Exclusivo", "magic-eden": "Magic Eden", "opensea": "OpenSea", "tensor": "Tensor"}
+SOLONCHAIN_PROGRAM = "CtfpjCprm4sTCEYuhJV1ghFFGHGkqswWaqez2Zr2nuBF"
+SOLONCHAIN_LISTING_SIZE = 91
 RIPPLE_EPOCH = 946684800   # XRPL times count seconds from 2000-01-01
 MARKET_NAMES = {"MAGIC_EDEN": "Magic Eden", "TENSOR": "Tensor", "EXCHANGE_ART": "Exchange Art", "SOLANART": "Solanart",
                 "HADESWAP": "Hadeswap", "CORAL_CUBE": "Coral Cube", "HYPERSPACE": "Hyperspace", "SNIPER": "Sniper",
@@ -175,6 +181,57 @@ async def helius_listings(http: Http, key: str, owner: str) -> list[dict]:
     return out
 
 
+_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _b58(b: bytes) -> str:
+    n, out = int.from_bytes(b, "big"), ""
+    while n:
+        n, r = divmod(n, 58)
+        out = _B58[r] + out
+    return "1" * (len(b) - len(b.lstrip(b"\0"))) + out
+
+
+def parse_solonchain(data: bytes) -> dict | None:
+    if len(data) != SOLONCHAIN_LISTING_SIZE:
+        return None
+    return {"seller": _b58(data[8:40]), "asset": _b58(data[40:72]),
+            "lamports": int.from_bytes(data[72:80], "little"),
+            "listed_at": int.from_bytes(data[80:88], "little", signed=True)}
+
+
+async def solonchain_listings(scanner, owner: str) -> list[dict]:
+    """The wallet's open listings on SolOnChain, read straight from its program.
+    The NFTs sit in escrow while listed, so names and pictures come from DAS."""
+    import base64
+    res = await scanner.rpc.post("", params=scanner.rpc_params, json={
+        "jsonrpc": "2.0", "id": 1, "method": "getProgramAccounts",
+        "params": [SOLONCHAIN_PROGRAM, {"encoding": "base64", "filters": [
+            {"dataSize": SOLONCHAIN_LISTING_SIZE}, {"memcmp": {"offset": 8, "bytes": owner}}]}]})
+    if isinstance(res, dict) and res.get("error"):
+        raise RuntimeError(f"SolOnChain lookup: {str(res['error'])[:200]}")
+    listed = []
+    for acc in (res or {}).get("result") or []:
+        try:
+            l = parse_solonchain(base64.b64decode(acc["account"]["data"][0]))
+        except Exception:
+            l = None
+        if l and l["seller"] == owner and l["lamports"] > 0:
+            listed.append(l)
+    if listed:
+        await scanner._resolve_mints({l["asset"] for l in listed})
+    out = []
+    for l in listed:
+        meta = scanner._meta.get(l["asset"]) or {}
+        out.append({
+            "marketplace": "SolOnChain", "chain": Chain.SOLANA, "owner": owner, "contract": l["asset"],
+            "token_id": l["asset"], "price": Decimal(l["lamports"]) / Decimal(10 ** 9), "currency": "SOL",
+            "quantity": 1, "expires_at": None, "url": f"https://www.solonchain.io/marketplace/{l['asset']}",
+            "name": meta.get("name"), "image": meta.get("image"), "escrowed": True,
+        })
+    return out
+
+
 async def xrpl_listings(http: Http, owner: str) -> list[dict]:
     """Sell offers the account has open on the XRP Ledger (any marketplace)."""
     out, marker = [], None
@@ -274,6 +331,10 @@ async def fetch_all(addresses: list[tuple[Chain, str]]) -> tuple[list[dict], lis
         if hkey:
             hh = Http(env("HELIUS_API_BASE", "https://api.helius.xyz/v0"), rate_per_sec=8)
             jobs += [("Tensor & other Solana marketplaces", o, helius_listings(hh, hkey, o)) for o in owners_sol]
+        if hkey:
+            from scanners.solana import SolanaScanner
+            sc = SolanaScanner()
+            jobs += [("SolOnChain", o, solonchain_listings(sc, o)) for o in owners_sol]
     if owners_xrp:
         xh = Http(env("XRPL_RPC_URL", "https://xrplcluster.com"), rate_per_sec=4)
         jobs += [("XRP Ledger", o, xrpl_listings(xh, o)) for o in owners_xrp]

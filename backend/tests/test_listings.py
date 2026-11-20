@@ -214,3 +214,41 @@ def test_exclusivo_listings_from_held_nfts(monkeypatch):
     assert {"name": "Exclusivo", "ok": True, "error": None} in out["sources"]
     # one wallet only
     assert {x["name"] for x in asyncio.run(L.listings_for(P(), held, "0xME"))["listings"]} == {"Robinhood Bear #7"}
+
+
+REAL_SOLONCHAIN = "2iAySSuGGjpnl8dmQljWzGUmI7Jk8r+jlg1RC8S7zCkrpXmedF503gn4UglWsDH7j4c95Z8VW9DDh0RiMjvQAnnu1PPCmT/3AMLrCwAAAADOBfFqAAAAAAAB/w=="
+
+
+def test_parse_real_solonchain_listing():
+    import base64
+    l = L.parse_solonchain(base64.b64decode(REAL_SOLONCHAIN))   # BullBears #8817, listed at 0.2 SOL
+    assert l == {"seller": "7yPEAJEHGqJyRCTv2YUqY4WX6zCXzpBgfWM67joXJWmB",
+                 "asset": "fvHYF1RtgCoeCAxNrbvTE3tcFsdXrGBacTTGJx96Sza", "lamports": 200_000_000, "listed_at": 1794180558}
+    assert L.parse_solonchain(b"\0" * 90) is None
+
+
+def test_solonchain_listings_by_seller():
+    seller = "7yPEAJEHGqJyRCTv2YUqY4WX6zCXzpBgfWM67joXJWmB"
+    sent = []
+
+    class Rpc:
+        async def post(self, path, params=None, json=None):
+            sent.append(json)
+            return {"result": [{"pubkey": "2T9T14KGVHxLX2n9VEH4ECDMjwc2LujPebpSvv8rEAif",
+                                "account": {"data": [REAL_SOLONCHAIN, "base64"]}}]}
+
+    class Scanner:
+        rpc, rpc_params = Rpc(), {"api-key": "k"}
+        _meta = {}
+
+        async def _resolve_mints(self, mints):
+            for m in mints:
+                self._meta[m] = {"name": "BullBears #8817", "image": "https://cdn.helius/bb.png"}
+
+    (row,) = asyncio.run(L.solonchain_listings(Scanner(), seller))
+    flt = sent[0]["params"][1]["filters"]
+    assert sent[0]["method"] == "getProgramAccounts" and sent[0]["params"][0] == L.SOLONCHAIN_PROGRAM
+    assert {"dataSize": 91} in flt and {"memcmp": {"offset": 8, "bytes": seller}} in flt
+    assert row["marketplace"] == "SolOnChain" and row["price"] == Decimal("0.2") and row["name"] == "BullBears #8817"
+    assert row["url"] == "https://www.solonchain.io/marketplace/fvHYF1RtgCoeCAxNrbvTE3tcFsdXrGBacTTGJx96Sza"
+    assert not row.get("must_hold")   # escrowed: the NFT isn't in the wallet while listed
