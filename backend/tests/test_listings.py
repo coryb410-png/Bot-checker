@@ -252,3 +252,45 @@ def test_solonchain_listings_by_seller():
     assert row["marketplace"] == "SolOnChain" and row["price"] == Decimal("0.2") and row["name"] == "BullBears #8817"
     assert row["url"] == "https://www.solonchain.io/marketplace/fvHYF1RtgCoeCAxNrbvTE3tcFsdXrGBacTTGJx96Sza"
     assert not row.get("must_hold")   # escrowed: the NFT isn't in the wallet while listed
+
+
+def test_exclusivo_escrow_listings(monkeypatch):
+    seller = "7yPEAJEHGqJyRCTv2YUqY4WX6zCXzpBgfWM67joXJWmB"
+    monkeypatch.setitem(L._exc_snapshot, "at", 0.0)
+    das_calls, exc_calls = [], []
+
+    class Rpc:
+        async def post(self, path, params=None, json=None):
+            das_calls.append(json)
+            assert json["method"] == "getAssetsByOwner" and json["params"]["ownerAddress"] == L.EXC_SOL_ESCROWS
+            return {"result": {"items": [
+                {"id": "CFDZf9JRYXdmTirde3SeWUP89Jej3RfCxM9e8TD4j2CX", "interface": "MplCoreAsset",
+                 "content": {"metadata": {"name": "SolGod #2329"}, "links": {"image": "https://gateway.irys.xyz/x/2329.jpg"}},
+                 "grouping": [{"group_key": "collection", "group_value": "EVt8vN4oYEp6wB5gVf2nJxD5NKj5pq1LcGUgd5K1oD18"}]},
+                {"id": "Other", "interface": "MplCoreAsset", "content": {"metadata": {"name": "SolGod #1"}},
+                 "grouping": [{"group_key": "collection", "group_value": "EVt8vN4oYEp6wB5gVf2nJxD5NKj5pq1LcGUgd5K1oD18"}]}]}}
+
+    class Scanner:
+        rpc, rpc_params = Rpc(), {}
+
+    class ExcHttp:
+        async def get(self, path, params=None):
+            exc_calls.append((path, dict(params or {})))
+            assert path == "/collections/solana_evt8vn4oyep6wb5gvf2njxd5nkj5pq1lcgugd5k1od18/listings"
+            if "cursor" not in (params or {}):
+                return {"data": [   # shape from the live API
+                    {"chain": "solana", "mint": "CFDZf9JRYXdmTirde3SeWUP89Jej3RfCxM9e8TD4j2CX",
+                     "price": {"raw": "400000000", "decimal": 0.4, "currency": "SOL", "usd": 27.16}, "seller": seller,
+                     "marketplace": "EXC", "status": "active", "expiresAt": "2027-01-18T13:21:37.832Z"},
+                    {"chain": "solana", "mint": "Other", "price": {"decimal": 1, "currency": "SOL"}, "seller": "SomeoneElse",
+                     "marketplace": "EXC", "status": "active"}],
+                    "pagination": {"nextCursor": "50", "hasMore": True}}
+            return {"data": [], "pagination": {"nextCursor": None, "hasMore": False}}
+
+    (row,) = asyncio.run(L.exclusivo_escrow_listings(Scanner(), ExcHttp(), seller))
+    assert row["marketplace"] == "Exclusivo" and row["price"] == Decimal("0.4") and row["name"] == "SolGod #2329"
+    assert row["expires_at"] == "2027-01-18T13:21:37.832Z" and row["url"] == f"https://exclusivo.one/wallet/{seller}"
+    assert [c[1].get("cursor") for c in exc_calls] == [None, "50"]
+    # a second wallet within a few minutes reuses the snapshot
+    assert asyncio.run(L.exclusivo_escrow_listings(Scanner(), ExcHttp(), "SomeoneElse"))[0]["price"] == Decimal("1")
+    assert len(das_calls) == 1 and len(exc_calls) == 2

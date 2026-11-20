@@ -11,6 +11,11 @@
     each NFT the scan found (Solana, Ethereum, Base, Polygon, Robinhood) is
     looked up one by one (capped) for an active listing, which can be on
     Exclusivo itself ("EXC") or a marketplace it aggregates.
+    Exclusivo on Solana is custodial: a listed NFT is sent to Exclusivo's
+    escrow wallet, so it isn't among the wallet's NFTs. For those, the NFTs
+    in the escrow wallet (Helius DAS) give the collections that have
+    Exclusivo listings; each collection's listings (Exclusivo API) are
+    filtered on the seller. That snapshot is shared and kept a few minutes.
   • SolOnChain (solonchain.io): listing an NFT moves it into an escrow
     account of its marketplace program; each listing is a 91-byte account
     [8 discriminator | seller 32 | asset 32 | price u64 lamports | listed_at
@@ -41,6 +46,12 @@ OPENSEA_CHAIN = {"ethereum": Chain.ETHEREUM, "base": Chain.BASE, "arbitrum": Cha
 EXC_CHAINS = {"solana", "ethereum", "polygon", "base", "robinhood"}
 EXC_MAX_NFTS = 200          # per check; most valuable NFTs first
 EXC_NAMES = {"EXC": "Exclusivo", "magic-eden": "Magic Eden", "opensea": "OpenSea", "tensor": "Tensor"}
+EXC_SOL_ESCROWS = "HUxx919u8CSpyzLcmDYvBrvzBNt7caCdgDv2Ucjm4fge"   # Exclusivo's Solana escrow wallet(s)
+EXC_SNAPSHOT_SECONDS = 300
+EXC_MAX_COLLECTIONS = 80
+EXC_MAX_PAGES = 20          # per collection, 100 listings each
+_exc_snapshot: dict = {"at": 0.0, "rows": [], "meta": {}, "error": None}
+_exc_lock = asyncio.Lock()
 SOLONCHAIN_PROGRAM = "CtfpjCprm4sTCEYuhJV1ghFFGHGkqswWaqez2Zr2nuBF"
 SOLONCHAIN_LISTING_SIZE = 91
 RIPPLE_EPOCH = 946684800   # XRPL times count seconds from 2000-01-01
@@ -311,6 +322,84 @@ async def exclusivo_listings(http: Http, nfts: list[dict]) -> tuple[list[dict], 
     return rows, error
 
 
+async def exclusivo_solana_snapshot(scanner, http: Http) -> dict:
+    """Every active Exclusivo listing on Solana (shared by all visitors, a few minutes)."""
+    async with _exc_lock:
+        if time.time() - _exc_snapshot["at"] < EXC_SNAPSHOT_SECONDS:
+            return _exc_snapshot
+        from scanners.solana import parse_das_asset
+        collections, meta = set(), {}
+        for escrow in [e.strip() for e in env("EXCLUSIVO_SOL_ESCROWS", EXC_SOL_ESCROWS).split(",") if e.strip()]:
+            for page in range(1, 11):   # up to 10,000 escrowed NFTs
+                res = await scanner.rpc.post("", params=scanner.rpc_params, json={
+                    "jsonrpc": "2.0", "id": 1, "method": "getAssetsByOwner",
+                    "params": {"ownerAddress": escrow, "page": page, "limit": 1000}})
+                items = (((res or {}).get("result") or {}).get("items")) or []
+                for a in items:
+                    m = parse_das_asset(a)
+                    meta[a["id"]] = {"name": m.get("name"), "image": m.get("image")}
+                    if m.get("collection"):
+                        collections.add(m["collection"])
+                if len(items) < 1000:
+                    break
+        rows, failures = [], 0
+
+        async def one(coll: str):
+            nonlocal failures
+            cursor = None
+            for _ in range(EXC_MAX_PAGES):
+                params = {"limit": 100, **({"cursor": cursor} if cursor else {})}
+                try:
+                    res = await http.get(f"/collections/solana_{coll.lower()}/listings", params=params)
+                except Exception:
+                    failures += 1
+                    return
+                for l in res.get("data") or []:
+                    if (l.get("status") or "active") == "active" and l.get("mint") and l.get("seller"):
+                        rows.append(l)
+                pg = res.get("pagination") or {}
+                cursor = pg.get("nextCursor")
+                if not pg.get("hasMore") or not cursor:
+                    return
+
+        colls = sorted(collections)[:EXC_MAX_COLLECTIONS]
+        sem = asyncio.Semaphore(4)
+
+        async def guarded(c):
+            async with sem:
+                await one(c)
+        await asyncio.gather(*(guarded(c) for c in colls))
+        _exc_snapshot.update({"at": time.time(), "rows": rows, "meta": meta,
+                              "error": f"{failures} of {len(colls)} collections failed" if colls and failures == len(colls) else None})
+        return _exc_snapshot
+
+
+async def exclusivo_escrow_listings(scanner, http: Http, owner: str) -> list[dict]:
+    snap = await exclusivo_solana_snapshot(scanner, http)
+    if snap.get("error"):
+        raise RuntimeError(snap["error"])
+    out = []
+    for l in snap["rows"]:
+        if l.get("seller") != owner:
+            continue
+        price = l.get("price") or {}
+        try:
+            amount = Decimal(str(price.get("decimal")))
+        except (InvalidOperation, TypeError):
+            continue
+        slug = l.get("marketplace") or "EXC"
+        mint = l["mint"]
+        meta = snap["meta"].get(mint) or {}
+        out.append({
+            "marketplace": EXC_NAMES.get(slug) or slug.replace("-", " ").title(), "chain": Chain.SOLANA,
+            "owner": owner, "contract": mint, "token_id": mint, "price": amount,
+            "currency": (price.get("currency") or "SOL").upper(), "usd_hint": price.get("usd"), "quantity": 1,
+            "expires_at": l.get("expiresAt"), "url": f"https://exclusivo.one/wallet/{owner}",
+            "name": meta.get("name"), "image": meta.get("image"), "escrowed": True,
+        })
+    return out
+
+
 async def fetch_all(addresses: list[tuple[Chain, str]]) -> tuple[list[dict], list[dict]]:
     """All active listings for the portfolio's addresses, plus which sources were checked."""
     owners_evm = sorted({a.lower() for c, a in addresses if c in EVM})
@@ -335,6 +424,8 @@ async def fetch_all(addresses: list[tuple[Chain, str]]) -> tuple[list[dict], lis
             from scanners.solana import SolanaScanner
             sc = SolanaScanner()
             jobs += [("SolOnChain", o, solonchain_listings(sc, o)) for o in owners_sol]
+            eh = Http(env("EXCLUSIVO_API_URL", "https://exclusivo.one/v1"), rate_per_sec=4)
+            jobs += [("Exclusivo", o, exclusivo_escrow_listings(sc, eh, o)) for o in owners_sol]
     if owners_xrp:
         xh = Http(env("XRPL_RPC_URL", "https://xrplcluster.com"), rate_per_sec=4)
         jobs += [("XRP Ledger", o, xrpl_listings(xh, o)) for o in owners_xrp]
@@ -395,8 +486,9 @@ async def listings_for(p, holdings: list[dict], wallet: str | None, refresh: boo
         exc = cache["exc"] = {"keys": exc_keys, "at": time.time(), "rows": rows_, "error": err}
     found = {(r["chain"], r["token_id"].lower(), r["marketplace"]) for r in cache["rows"]}
     extra = [r for r in exc.get("rows") or [] if (r["chain"], r["token_id"].lower(), r["marketplace"]) not in found]
-    sources = list(cache["sources"]) + ([{"name": "Exclusivo", "ok": not exc.get("error"), "error": exc.get("error")}]
-                                        if exc else [])
+    sources = list(cache["sources"])
+    if exc and not any(x["name"] == "Exclusivo" for x in sources):
+        sources.append({"name": "Exclusivo", "ok": not exc.get("error"), "error": exc.get("error")})
     out = []
     for r in cache["rows"] + extra:
         if wallet and r["owner"].lower() != wallet.lower():
