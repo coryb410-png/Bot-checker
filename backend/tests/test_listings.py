@@ -294,3 +294,22 @@ def test_exclusivo_escrow_listings(monkeypatch):
     # a second wallet within a few minutes reuses the snapshot
     assert asyncio.run(L.exclusivo_escrow_listings(Scanner(), ExcHttp(), "SomeoneElse"))[0]["price"] == Decimal("1")
     assert len(das_calls) == 1 and len(exc_calls) == 2
+
+
+def test_fill_details_for_escrowed_listings(monkeypatch):
+    import scanners.solana as sol
+    monkeypatch.setenv("HELIUS_API_KEY", "k")
+
+    class FakeScanner:
+        def __init__(self): self._meta = {}
+
+        async def _resolve_mints(self, mints):
+            assert mints == {"6ThbuN6kzGB7xx"}
+            self._meta["6ThbuN6kzGB7xx"] = {"name": "Retardio #77", "image": "https://cdn.helius/r77.png"}
+
+    monkeypatch.setattr(sol, "SolanaScanner", FakeScanner)
+    rows = [{"chain": Chain.SOLANA, "contract": "6ThbuN6kzGB7xx", "token_id": "6ThbuN6kzGB7xx", "name": None, "image": None},
+            {"chain": Chain.SOLANA, "contract": "Done", "token_id": "Done", "name": "Has #1", "image": "https://x/1.png"}]
+    asyncio.run(L.fill_details(rows))
+    assert rows[0]["name"] == "Retardio #77" and rows[0]["image"] == "https://cdn.helius/r77.png"
+    assert rows[1]["name"] == "Has #1"

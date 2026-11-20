@@ -446,7 +446,41 @@ async def fetch_all(addresses: list[tuple[Chain, str]]) -> tuple[list[dict], lis
         if k not in seen:
             seen.add(k)
             unique.append(r)
+    try:
+        await fill_details(unique)
+    except Exception as e:   # names and pictures are a bonus; never fail the tab over them
+        monitor.record("provider_error", f"listing details: {e}")
     return unique, sources
+
+
+async def fill_details(rows: list[dict]) -> None:
+    """Name and picture for listed NFTs that aren't in the wallet (escrowed while
+    listed, or missed by the scan): Helius DAS for Solana, OpenSea for EVM."""
+    sol = sorted({r["contract"] for r in rows if r["chain"] == Chain.SOLANA and not (r.get("name") and r.get("image"))})
+    if sol and env("HELIUS_API_KEY", ""):
+        from scanners.solana import SolanaScanner
+        sc = SolanaScanner()
+        await sc._resolve_mints(set(sol))
+        for r in rows:
+            m = sc._meta.get(r["contract"]) if r["chain"] == Chain.SOLANA else None
+            if m:
+                r["name"] = r.get("name") or m.get("name")
+                r["image"] = r.get("image") or m.get("image")
+    evm = [r for r in rows if r["chain"] in EVM and not (r.get("name") and r.get("image"))][:40]
+    if evm and env("OPENSEA_API_KEY", ""):
+        from scanners.opensea import CHAINS, picture
+        http, sem = _opensea_http(), asyncio.Semaphore(3)
+
+        async def one(r):
+            async with sem:
+                try:
+                    res = await http.get(f"/chain/{CHAINS[r['chain']]}/contract/{r['contract']}/nfts/{r['token_id']}")
+                except Exception:
+                    return
+            n = res.get("nft") or {}
+            r["name"] = r.get("name") or n.get("name")
+            r["image"] = r.get("image") or picture(n)
+        await asyncio.gather(*(one(r) for r in evm))
 
 
 def _usd(amount: Decimal | None, currency: str, native_usd: dict) -> Decimal | None:
