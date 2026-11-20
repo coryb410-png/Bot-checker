@@ -29,9 +29,27 @@ async def run() -> None:
     def out(label, data):
         print(f"[diag] {label}: {json.dumps(data, default=str)[:3500]}", flush=True)
 
+    for prog in [x.strip() for x in (os.environ.get("DIAG_PROGRAM") or "").split(",") if x.strip()]:
+        accs = await rpc("getProgramAccounts", [prog, {"encoding": "base64", "dataSlice": {"offset": 0, "length": 0}}])
+        if isinstance(accs, list):
+            out(f"program {prog}", {"accounts": len(accs)})
+        sized = {}
+        for size in (92, 100, 120, 124, 165):
+            res = await rpc("getProgramAccounts", [prog, {"encoding": "base64", "filters": [{"dataSize": size}]}])
+            if isinstance(res, list) and res:
+                sized[size] = len(res)
+                for a_ in res[:4]:
+                    out(f"program {prog} size {size}", {"pubkey": a_["pubkey"], "base64": a_["account"]["data"][0],
+                                                        "lamports": a_["account"].get("lamports")})
+        out(f"program {prog} sizes", sized)
+
     for t in targets:
         info = await rpc("getAccountInfo", [t, {"encoding": "jsonParsed"}])
         v = (info or {}).get("value") if isinstance(info, dict) else None
+        raw = await rpc("getAccountInfo", [t, {"encoding": "base64"}])
+        rv = (raw or {}).get("value") if isinstance(raw, dict) else None
+        if rv and isinstance(rv.get("data"), list):
+            out(f"raw {t}", {"base64": rv["data"][0]})
         out(f"account {t}", {"owner_program": (v or {}).get("owner"), "lamports": (v or {}).get("lamports"),
                              "executable": (v or {}).get("executable"),
                              "data": (v or {}).get("data") if isinstance((v or {}).get("data"), dict) else
