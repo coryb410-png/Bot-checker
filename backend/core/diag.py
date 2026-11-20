@@ -64,6 +64,15 @@ async def run() -> None:
         if isinstance(asset, dict) and asset.get("ownership"):
             out(f"das ownership {t}", {"ownership": asset.get("ownership"), "interface": asset.get("interface"),
                                        "authorities": asset.get("authorities")})
+            coll = next((g.get("group_value") for g in asset.get("grouping") or [] if g.get("group_key") == "collection"), None)
+            out(f"das grouping {t}", {"collection": coll})
+            if coll:
+                from scanners.base import Http
+                try:
+                    exc = await Http("https://exclusivo.one/v1", rate_per_sec=2).get(f"/tokens/solana/{coll}/{t}")
+                except Exception as e:
+                    exc = {"error": str(e)[:300]}
+                out(f"exclusivo token {t}", exc)
         try:
             txs = await s.http.get(f"/addresses/{t}/transactions", params={"api-key": s.key, "limit": 6})
         except Exception as e:
