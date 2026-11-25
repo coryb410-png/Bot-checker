@@ -230,7 +230,7 @@ async def _find_untracked_nfts(p: Portfolio) -> None:
         return owned
 
     from core import monitor
-    wallets = [(c, a) for c, a in p.addresses if c.value not in monitor.disabled_networks and c in (Chain.SOLANA, Chain.ETHEREUM, Chain.ROBINHOOD, Chain.CARDANO, Chain.XRP, Chain.DOGECOIN) + EVM_EXTRAS]
+    wallets = [(c, a) for c, a in p.addresses if c.value not in monitor.disabled_networks and c in (Chain.BITCOIN, Chain.SOLANA, Chain.ETHEREUM, Chain.ROBINHOOD, Chain.CARDANO, Chain.XRP, Chain.DOGECOIN) + EVM_EXTRAS]
     for (_, addr), owned in zip(wallets, await asyncio.gather(*(owned_by(c, a) for c, a in wallets))):
         owned_by_key.update({a.key: a for a in owned})
         p.nft_owner.update({a.key: addr for a in owned})
@@ -279,7 +279,8 @@ EVM_EXTRAS = (Chain.BASE, Chain.ARBITRUM, Chain.OPTIMISM, Chain.POLYGON)   # sca
 NATIVE_ADA = Asset(Chain.CARDANO, "ADA", decimals=6, coingecko_id="cardano")
 NATIVE_XRP = Asset(Chain.XRP, "XRP", decimals=6, coingecko_id="ripple")
 NATIVE_POL = Asset(Chain.POLYGON, "POL", decimals=18, coingecko_id="polygon-ecosystem-token")   # for floors priced in POL
-NATIVES = (NATIVE_SOL, NATIVE_ETH, NATIVE_ADA, NATIVE_XRP, NATIVE_POL)
+NATIVE_BTC = Asset(Chain.BITCOIN, "BTC", decimals=8, coingecko_id="bitcoin")   # for Ordinals floors
+NATIVES = (NATIVE_SOL, NATIVE_ETH, NATIVE_ADA, NATIVE_XRP, NATIVE_POL, NATIVE_BTC)
 _floor_service = None
 
 

@@ -63,6 +63,11 @@ class BitcoinScanner:
             fee=Decimal(fee_sats) / SATS, fee_asset=cls.ASSET if paid_fee else None,
         )
 
+    async def held_nfts(self, owner: str) -> list:
+        """Ordinals inscriptions this address holds (see scanners/ordinals.py)."""
+        from .ordinals import OrdinalsClient
+        return await OrdinalsClient().held(owner)
+
     async def balance(self, address: str) -> dict[str, Decimal]:
         d = await self.http.get(f"/address/{address}")
         cs = d["chain_stats"]

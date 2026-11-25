@@ -31,6 +31,7 @@ KEYS = [
     ("BLOCKCYPHER_TOKEN", "BlockCypher (Dogecoin backup)"),
     ("MAGICEDEN_API_KEY", "Magic Eden (Solana floors)"),
     ("OPENSEA_API_KEY", "OpenSea (NFT floors, pictures and listings on Ethereum, Robinhood, Base, Arbitrum, Optimism, Polygon)"),
+    ("XVERSE_API_KEY", "Xverse (Bitcoin Ordinals names and floors; ordinals.com used without it)"),
     ("BLOCKSCOUT_API_KEY", "Blockscout (Robinhood Chain; free at dev.blockscout.com)"),
     ("CACHE_URL", "Shared price cache (Render Key Value)"),
     ("PROXY_SHARED_SECRET", "Website proxy key (per-person limits)"),

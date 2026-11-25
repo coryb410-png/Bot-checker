@@ -10,7 +10,7 @@ interface Entry { address: string; chain: Chain; label?: string }
 
 // The networks people can add, shown as badges at the top of the page
 const NETWORKS: [string, string, string | null][] = [
-  ["bitcoin", "Bitcoin", "BTC"], ["ethereum", "Ethereum", "ETH"], ["solana", "Solana", "SOL"],
+  ["bitcoin", "Bitcoin", "BTC · Ordinals"], ["ethereum", "Ethereum", "ETH"], ["solana", "Solana", "SOL"],
   ["cardano", "Cardano", "ADA"], ["xrp", "XRP Ledger", "XRP"], ["dogecoin", "Dogecoin", "DOGE"],
   ["evm", "Base · Arbitrum · Optimism · Polygon · Robinhood", null],
 ];

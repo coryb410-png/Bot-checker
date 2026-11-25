@@ -113,7 +113,7 @@ class FloorService:
         groups: dict[str, Asset] = {}
         opensea_on = bool(env("OPENSEA_API_KEY", "")) or self._opensea is not None
         for a in nfts:
-            if a.is_nft and not a.spam and (a.chain in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP)
+            if a.is_nft and not a.spam and (a.chain in (Chain.SOLANA, Chain.ETHEREUM, Chain.CARDANO, Chain.XRP, Chain.BITCOIN)
                                              or (a.chain in OPENSEA_CHAINS and opensea_on)):
                 groups.setdefault(collection_key(a), a)
 
@@ -126,7 +126,8 @@ class FloorService:
                     floor = await {Chain.SOLANA: lambda: self._solana(key, sample),
                                    Chain.ETHEREUM: lambda: self._ethereum_any(key, sample, opensea_on),
                                    Chain.CARDANO: lambda: self._cardano(sample),
-                                   Chain.XRP: lambda: self._xrp(sample)}.get(
+                                   Chain.XRP: lambda: self._xrp(sample),
+                                   Chain.BITCOIN: lambda: self._bitcoin(sample)}.get(
                                        sample.chain, lambda: self._opensea_floor(key, sample))()
                 except Exception as e:   # one collection failing never matters to the rest
                     log.warning("floor unavailable for %s: %s", key, str(e)[:200])
@@ -171,6 +172,12 @@ class FloorService:
             if isinstance(fp, (int, float)) and fp > 0 and (m.get("priceCurrency") or "ETH").upper() == "ETH":
                 return Floor(Decimal(str(fp)), "ETH", label, m.get("collectionUrl"))
         return None
+
+    async def _bitcoin(self, sample: Asset) -> Floor | None:
+        """Ordinals: the collection floor Xverse reported while the wallet was read."""
+        from scanners.ordinals import FLOORS
+        amount = FLOORS.get(sample.collection or "")
+        return Floor(amount, "BTC", "Xverse", None) if amount else None
 
     async def _opensea_floor(self, key: str, sample: Asset) -> Floor | None:
         chain = OPENSEA_CHAINS.get(sample.chain)
