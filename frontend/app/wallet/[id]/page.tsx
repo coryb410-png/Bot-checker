@@ -161,9 +161,9 @@ export default function WalletPage({ params }: { params: { id: string } }) {
   return (
     <>
     <header className="masthead slim">
-      <div className="in row" style={{ justifyContent: "space-between", display: "flex" }}>
+      <div className="in row top-bar" style={{ justifyContent: "space-between", display: "flex" }}>
         <Link href="/"><BrandMark /></Link>
-        <div className="row">
+        <div className="row top-actions">
           {!st.demo && <button className="btn" disabled={scanning} onClick={async () => { await api.refresh(id); setSt({ ...st, status: "queued" }); location.reload(); }}>Refresh</button>}
           <button className="btn" onClick={async () => { await api.remove(id); location.href = "/"; }}>Delete portfolio</button>
         </div>
@@ -300,7 +300,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
               </label>
             </div>
             <div className="scroll">
-              <table>
+              <table className="ht">
                 <thead><tr><th>Asset</th><th className="r">Quantity</th><th className="r">Price</th><th className="r">Value</th><th className="r">Cost basis</th><th className="r">Unrealized</th></tr></thead>
                 <tbody>
                   {holdings.filter((h) => !h.nft).map((h) => (
@@ -311,10 +311,10 @@ export default function WalletPage({ params }: { params: { id: string } }) {
                         {h.compressed && <span className="chip plain">cNFT</span>}
                         {h.untracked && <span className="chip plain" title="You own this, but how it arrived isn't in the scanned history, so it has no purchase price">Not in history</span>}
                       </span></td>
-                      <td className="r">{Number(h.quantity).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
-                      <td className="r">{money(h.price)}</td>
-                      <td className="r">{money(h.value)}</td>
-                      <td className="r">{money(h.cost_basis)}{Number(h.unknown_basis_qty) > 0 && <span className="warn" title="Part of this holding has no known purchase price"> *</span>}</td>
+                      <td className="r" data-label="Qty">{Number(h.quantity).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+                      <td className="r" data-label="@">{money(h.price)}</td>
+                      <td className="r ht-value">{money(h.value)}</td>
+                      <td className="r" data-label="Cost">{money(h.cost_basis)}{Number(h.unknown_basis_qty) > 0 && <span className="warn" title="Part of this holding has no known purchase price"> *</span>}</td>
                       <td className={`r ${Number(h.unrealized_pnl) >= 0 ? "gain" : "loss"}`}>{money(h.unrealized_pnl, true)}</td>
                     </tr>
                   ))}
@@ -326,7 +326,7 @@ export default function WalletPage({ params }: { params: { id: string } }) {
           <section className="panel" style={{ display: "grid", gap: 12 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <h2>Transaction history</h2>
-              <div className="row">
+              <div className="row tx-filters">
                 <select aria-label="Filter by type" value={type} onChange={(e) => setType(e.target.value)} style={{ width: "auto" }}>
                   {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>

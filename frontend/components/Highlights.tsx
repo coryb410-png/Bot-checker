@@ -34,10 +34,10 @@ function Trade({ title, t }: { title: string; t: TradeHighlight }) {
 function Flip({ title, f }: { title: string; f: FlipHighlight }) {
   return (
     <Card title={title} realized={f.realized} href={explorerUrl(f.chain, f.tx_hash)}>
-      <div className="row" style={{ gap: 10, flexWrap: "nowrap", minWidth: 0 }}>
+      <div className="row hl-flip" style={{ gap: 10, flexWrap: "nowrap", minWidth: 0 }}>
         <NftThumb src={f.image} name={f.name} spam={f.spam} size={48} link={false} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, overflowWrap: "anywhere" }}>{f.name}</div>
+          <div className="hl-name" style={{ fontWeight: 600 }}>{f.name}</div>
           <div className="meta">Bought {money(f.cost)} · sold {money(f.proceeds)}</div>
           <div className="meta">{f.held_days !== null ? `Held ${heldFor(f.held_days)} · ` : ""}{day(f.date)}</div>
         </div>

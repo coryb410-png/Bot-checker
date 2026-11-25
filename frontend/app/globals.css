@@ -218,3 +218,83 @@ td.r, th.r { text-align: right; font-family: var(--mono); font-variant-numeric: 
 .li-price { font-size: 15px; }
 .li-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
 @media (max-width: 520px) { .listings { grid-template-columns: repeat(2, minmax(0, 1fr)); } .li-body { padding: 8px 9px 10px; } .li-price { font-size: 13px; } }
+
+/* ---------- Phones: keep the desktop dashboard's shape, just denser ----------
+   Two-up stat cards and highlights (instead of one per screen), a one-row
+   header, coins as compact rows with value and profit/loss always visible,
+   side-by-side filters and tighter spacing. */
+@media (max-width: 640px) {
+  .wrap { padding-block: 16px 48px; }
+  main.wrap { gap: 14px !important; }
+  .panel { padding: 14px; border-radius: 12px; }
+  h2 { font-size: 16px; }
+
+  /* Header: logo and actions on one row */
+  .masthead.slim { padding-block: 10px; }
+  .top-bar { flex-wrap: nowrap !important; gap: 8px; }
+  .top-bar .brandmark { gap: 8px; min-width: 0; }
+  .top-bar .brandmark .mk { width: 32px; height: 32px; }
+  .top-bar .brandmark b { font-size: 17px; }
+  .top-actions { flex-wrap: nowrap !important; gap: 6px; }
+  .top-actions .btn { padding: 7px 10px; font-size: 12.5px; border-radius: 9px; white-space: nowrap; }
+
+  /* Stat cards: 2 × 2 like the desktop row */
+  .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stat .v { font-size: 19px; margin-top: 6px; overflow-wrap: anywhere; }
+  .stat .s { font-size: 11.5px; line-height: 1.35; }
+  .stat .eyebrow { font-size: 9.5px; letter-spacing: .1em; }
+  .stat .mk { top: 10px; right: 10px; width: 22px; height: 22px; }
+
+  /* Highlights: 2 × 2 */
+  .hl-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .hl { gap: 4px; }
+  .hl-v { font-size: 17px; }
+  .hl .meta, .hl p { font-size: 11.5px; }
+  .hl .eyebrow { font-size: 9.5px; }
+  .hl .mk { width: 22px; height: 22px; }
+  .hl img, .hl .thumb { max-width: 40px; max-height: 40px; }
+
+  /* Segmented range buttons a touch smaller */
+  .seg button { padding: 6px 10px; font-size: 12px; }
+
+  /* Wallet tabs and Portfolio/Listings tabs: tighter */
+  .wtabs button { padding: 8px 11px; gap: 4px; }
+  .vtab { padding: 8px 13px; font-size: 13.5px; }
+
+  /* Coins & tokens: each coin is one compact two-line row, no sideways scrolling */
+  table.ht thead { display: none; }
+  table.ht, table.ht tbody { display: block; }
+  table.ht tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 10px 0;
+    border-bottom: 1px solid var(--line); }
+  table.ht tr:last-child { border-bottom: 0; }
+  table.ht td { padding: 0; border: 0; white-space: nowrap; min-width: 0; }
+  table.ht td:nth-child(1) { grid-column: 1; grid-row: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+  table.ht td.ht-value { grid-column: 2; grid-row: 1; font-weight: 600; font-size: 15px; }
+  table.ht td:nth-child(2) { grid-column: 1; grid-row: 2; text-align: left; color: var(--muted); font-size: 12px; }
+  table.ht td:nth-child(3) { grid-column: 1; grid-row: 3; text-align: left; color: var(--muted); font-size: 12px; }
+  table.ht td:nth-child(5) { grid-column: 2; grid-row: 2; color: var(--muted); font-size: 12px; }
+  table.ht td:nth-child(6) { grid-column: 2; grid-row: 3; font-size: 12.5px; }
+  table.ht td[data-label]::before { content: attr(data-label) " "; color: var(--muted); font-family: var(--body); font-size: 11px; }
+  .scroll:has(> table.ht) { overflow: visible; }
+
+  /* Transaction filters: two selects side by side, checkboxes underneath */
+  .tx-filters { display: grid !important; grid-template-columns: 1fr 1fr; gap: 8px !important; width: 100%; }
+  .tx-filters select { width: 100% !important; padding: 9px 10px; font-size: 13px; }
+  .tx-filters label { font-size: 13px !important; }
+  .tl li { padding: 12px 0; gap: 4px 10px; }
+  .tl .meta { font-size: 12px; }
+
+  /* NFT gallery: group headers wrap neatly; three tiles per row */
+  .gal-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .gal-head { gap: 4px 8px; }
+  .gal-tile .nm { font-size: 12px; }
+  .gal-tile .sub { font-size: 11px; }
+}
+.hl-name { overflow-wrap: break-word; }
+@media (max-width: 640px) {
+  /* Flip cards: picture on top, name on one line */
+  .hl-flip { flex-direction: column; align-items: flex-start !important; gap: 6px !important; }
+  .hl-flip > :first-child { width: 40px !important; height: 40px !important; }
+  .hl-flip > div { width: 100%; }
+  .hl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; }
+}
